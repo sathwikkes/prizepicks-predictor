@@ -1,101 +1,102 @@
 # PrizePicks Predictor — Development Roadmap
 
-A Python application that predicts NBA player prop outcomes (points, rebounds, assists, threes, PRA, etc.) and surfaces the highest-edge picks against PrizePicks lines.
+An NBA player prop analytics platform that estimates calibrated More/Less probabilities for
+PrizePicks projections and identifies where a statistically supported edge may exist.
+Initial scope: points, rebounds, assists. Architected for more stat types and sports later.
 
-## Guiding Principles
+## Guiding principles
 
-- **Reproducible first.** Every prediction must be traceable to a dataset snapshot, a model version, and a feature set.
-- **Backtest before you trust.** No model ships to the dashboard without a documented out-of-sample track record.
-- **Simple models, strong baselines.** Beat the "player's season average" baseline before adding complexity.
-- **Thin UI, thick API.** All logic lives behind the FastAPI service; the Streamlit dashboard only reads from it.
+- **Calibration over accuracy.** A model is useful when its probabilities are calibrated at
+  the line, not when it predicts a player's average well.
+- **Backtest before you trust.** Chronological splits only. Every feature must be available
+  before tip-off. Nothing is called profitable without out-of-sample evidence.
+- **Simple baselines first.** Beat season and rolling averages before adding complexity.
+- **Thin UI, thick API.** All logic lives behind services and the FastAPI layer.
+- **Authorized data only.** No scraping of sites that forbid it, no private PrizePicks
+  endpoints. Synthetic fixtures are always labeled as synthetic.
 
-## Planned Python Stack
+## Stack
 
 | Layer | Tooling |
 | --- | --- |
-| Language / packaging | Python 3.12, `uv` for dependency and venv management, `pyproject.toml` |
-| Data ingestion | `nba_api`, `httpx`, `pandas`, `pyarrow` |
-| Storage | DuckDB (local analytics) with Parquet files; SQLite for app state |
-| Feature engineering | `pandas`, `polars` (optional for speed), `numpy` |
-| Modeling | `scikit-learn`, `statsmodels`, `lightgbm`, `scipy` |
-| Backtesting | Custom harness on `pandas`; `pytest` for regression tests |
-| Backend | FastAPI, `pydantic` v2, `uvicorn` |
-| Dashboard | Streamlit, `plotly` |
-| Quality | `ruff`, `mypy`, `pytest`, `pre-commit` |
-| Orchestration | Simple CLI scripts first (`typer`); scheduled jobs via cron or GitHub Actions |
+| Language / packaging | Python 3.12+, uv, `pyproject.toml` |
+| Data | httpx, Pydantic v2, SQLAlchemy 2, SQLite (Postgres-ready); Polars/Pandas/NumPy from Phase 2 |
+| Modeling | SciPy distributions, scikit-learn, XGBoost, probability calibration |
+| Backend | FastAPI, Pydantic |
+| Frontend | Streamlit + Plotly (MVP); React/Next.js + Tailwind later |
+| Quality | pytest, Ruff, mypy (strict) |
+
+Dependencies are added only when the current phase needs them.
 
 ## Phases
 
-### Phase 0 — Project Scaffolding
-- Repository layout: `src/prizepicks_predictor/`, `tests/`, `docs/`, `data/` (gitignored).
-- `pyproject.toml`, `ruff` and `mypy` configuration, `pre-commit` hooks.
-- Settings module (`pydantic-settings`) for API keys, paths, and environment selection.
-- CI workflow: lint, type-check, and test on every push.
+### Phase 1 — Repository foundation and data infrastructure ✅ (this release)
 
-### Phase 1 — Data Ingestion
-- Pull player game logs, box scores, team schedules, and injury reports via `nba_api`.
-- Scrape or ingest PrizePicks projection lines (respecting rate limits and terms of service); store raw snapshots with timestamps.
-- Normalize into DuckDB tables: `players`, `games`, `player_game_stats`, `prop_lines`, `injuries`.
-- Incremental daily refresh job with idempotent upserts and data quality checks (row counts, null rates, duplicate keys).
+Done when:
+- [x] uv project with Ruff, mypy, pytest configured; `.env.example`; README setup instructions.
+- [x] Normalized SQLite schema: seasons, teams, players, games, player_game_stats,
+      external_ids, ingestion_runs. Unique constraints on natural keys; FKs enforced.
+- [x] Provider adapter protocol with a working CSV adapter and a BALLDONTLIE adapter
+      (mock-tested; live access requires a paid key).
+- [x] Idempotent loader with provenance: re-import reports inserted/updated/unchanged/rejected.
+- [x] `ppp game-logs <player>` returns date, team, opponent, minutes, pts, reb, ast.
+- [x] Automated tests for init, validation, insertion, duplicates, retrieval, error handling.
+- [x] Data-source evaluation documented (`docs/DATA_SOURCES.md`).
 
-### Phase 2 — Feature Engineering
-- Rolling windows (last 5 / 10 / 20 games, season-to-date) for each stat.
-- Context features: home/away, rest days, back-to-back, opponent defensive rating, pace, projected minutes, teammate availability.
-- Usage-rate and minutes-share features derived from recent lineups.
-- Point-in-time correctness: every feature computed only from data available before tip-off.
+### Phase 2 — Baseline prediction engine
 
-### Phase 3 — Statistical Models
-- **Baselines:** season average, exponentially weighted moving average.
-- **Distributional models:** Poisson / Negative Binomial for counting stats; Gaussian for minutes-driven stats; produce full distributions, not just point estimates.
-- **Regression models:** regularized linear models and LightGBM for the mean, with quantile or variance models for spread.
-- **Over/under probability:** convert the predicted distribution into `P(stat > line)` and an implied edge versus the PrizePicks payout structure.
-- Model registry: versioned artifacts with training window, feature list, and evaluation metrics.
+Done when:
+- [ ] Feature builder computes, strictly from games before a target date: season avg,
+      last-5 / last-10 avg, EWMA, per-minute rates, std dev, home/away splits, rest days.
+- [ ] Baselines implemented for PTS/REB/AST: season mean, rolling mean, EWMA, minutes-adjusted.
+- [ ] Distribution models produce a full predictive distribution (Normal and Negative
+      Binomial candidates, selected empirically), not just a point estimate.
+- [ ] `predict(player, stat, line, game_date)` returns predicted total, P(more), P(less),
+      P(push) for integer lines, uncertainty, contributing factors, model version, timestamp.
+- [ ] Prediction is reproducible: same inputs and model version give identical output.
+- [ ] Tests cover the no-leakage guarantee (target game excluded from features).
 
-### Phase 4 — Backtesting
-- Walk-forward backtest harness: train on past games, predict the next slate, roll forward day by day.
-- Metrics: hit rate by prop type, calibration (reliability curves, Brier score), log loss, ROI under flat-stake and Kelly staking.
-- Slice analysis: by player tier, stat type, line size, days of rest, and season segment.
-- Leakage audit: assert that no feature uses post-game information.
-- Store backtest reports under `docs/backtests/` for each model version.
+### Phase 3 — Model training and validation
 
-### Phase 5 — FastAPI Backend
-- Endpoints:
-  - `GET /health`
-  - `GET /slate/{date}` — today's available props with predictions and edge.
-  - `GET /players/{player_id}/props` — history and model outputs for a player.
-  - `GET /models` — registered model versions and metrics.
-  - `POST /refresh` — trigger an ingestion and prediction run (protected).
-- Pydantic response schemas, OpenAPI docs, structured logging, and request-level caching.
-- Background scheduler for the daily refresh.
+Done when:
+- [ ] Walk-forward backtest harness over the historical dataset (chronological folds).
+- [ ] Metrics reported per stat type: MAE, RMSE, Brier, log loss, calibration curves, hit rate.
+- [ ] XGBoost / gradient-boosted models trained and compared against every baseline.
+- [ ] Probability calibration (Platt / isotonic) evaluated on held-out folds.
+- [ ] `model_versions` table and experiment log; each backtest report is reproducible.
+- [ ] Forecasting backtests are clearly distinguished from wagering simulations, which
+      require timestamped historical lines we do not yet have.
 
-### Phase 6 — Streamlit Dashboard
-- **Slate view:** sortable table of today's props with predicted probability, edge, and confidence tier.
-- **Player view:** game-log trend charts, rolling averages, and distribution overlay versus the current line.
-- **Model view:** calibration plots and backtest ROI by version.
-- Filters for stat type, team, minimum edge, and injury status.
-- Reads exclusively from the FastAPI service.
+### Phase 4 — Backend and dashboard
 
-### Phase 7 — Hardening and Operations
-- Containerize API and dashboard with Docker Compose.
-- Alerting when ingestion fails or model drift exceeds thresholds.
-- Documented runbooks for refresh, retraining, and rollback.
+Done when:
+- [ ] FastAPI endpoints: health, player search, game logs, predict, model metrics.
+- [ ] Streamlit dashboard: player search, trend charts, stat selector, line entry,
+      More/Less probabilities with contributing factors.
+- [ ] Dashboard reads only from the API.
 
-## Milestones
+### Phase 5 — PrizePicks analysis
 
-| Milestone | Definition of done |
-| --- | --- |
-| M1 | Daily game logs and prop lines land in DuckDB automatically. |
-| M2 | Baseline and distributional models beat the season-average baseline in walk-forward backtest. |
-| M3 | FastAPI serves a daily slate with predictions and edge. |
-| M4 | Streamlit dashboard is usable end-to-end for a live slate. |
-| M5 | Full-season backtest report published with calibration and ROI. |
+Done when:
+- [ ] `projections` table with manual entry (and authorized live import if available).
+- [ ] Expected value per pick against verified current Power/Flex payout rules.
+- [ ] Multi-pick evaluation that models correlation between legs; pushes and voids handled.
+- [ ] Explicit "no statistically supported edge" and "uncertainty too high" outcomes.
+- [ ] `prediction_snapshots` and `prediction_outcomes` tables track accuracy over time.
 
-## Out of Scope (for now)
+### Phase 6 — Advanced features
 
-- Automated bet placement or any interaction with PrizePicks accounts.
-- Sports other than the NBA.
-- Deep learning models until classical baselines are exhausted.
+- AI-assisted matchup research and injury-report interpretation.
+- Automated schedule and injury updates from an authorized source.
+- Additional stat categories (3PM, PRA, etc.) and additional sports.
+- Production frontend (React/Next.js), containerization, deployment and monitoring.
+
+## Out of scope
+
+- Automated wagering or any interaction with PrizePicks accounts.
+- Promises or claims of profitability.
 
 ## Disclaimer
 
-This project is for research and educational purposes. Prop betting involves financial risk; predictions are probabilistic and not guarantees.
+Research and educational use only. Prop betting involves financial risk; model outputs
+are probabilistic estimates, not guarantees.
