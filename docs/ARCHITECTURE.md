@@ -1,9 +1,11 @@
-# Architecture notes (Phase 1)
+# Architecture notes
 
 ## Layers
 
 ```
 CLI / (future) FastAPI
+        │
+   prediction/         features -> models -> distributions -> predict()
         │
    services/           business logic; returns Pydantic read models
         │
@@ -11,6 +13,19 @@ CLI / (future) FastAPI
         │
    db/                 SQLAlchemy ORM, engine/session helpers
 ```
+
+### Prediction package
+
+| Module | Responsibility | Depends on |
+| --- | --- | --- |
+| `prediction/schemas.py` | `PredictionRequest`, `FeatureSet`, `PredictionResult`, enums | nothing internal |
+| `prediction/features.py` | pure functions from `GameLogRow` history to `FeatureSet` | schemas |
+| `prediction/models.py` | four baseline `ProjectionModel`s and the registry | schemas |
+| `prediction/distributions.py` | Poisson / NegBin / Normal / Empirical, More/Less/Push | schemas, scipy |
+| `prediction/service.py` | orchestration, error mapping, warnings | all of the above, services |
+
+Adding a model means implementing `project(FeatureSet) -> ModelOutput` and registering it;
+nothing else changes. The same holds for a new distribution family.
 
 Dependencies point downward only. `schemas/` is shared by every layer and depends on
 nothing internal. `config.py` is read at the edge (CLI) and passed in, so library code is
@@ -38,9 +53,22 @@ deliberately deferred.
 logic. The loader resolves on those keys so re-imports are idempotent and report
 inserted / updated / unchanged honestly.
 
-**Point-in-time hook from day one.** `get_player_game_logs(..., before=date)` excludes
-games on or after a date. Phase 2 features will be computed through this path so a
-prediction for a game can never see that game's own box score.
+**Point-in-time guarantee, enforced twice.** `get_player_game_logs(..., before=date)`
+excludes games on or after a date at the query layer, and `build_features` raises if any
+row it receives is not strictly before the cutoff. `tests/prediction/test_leakage.py`
+proves the target game, future games, insertion order and future seasons cannot alter a
+prediction.
+
+**Models return projections; distributions return probabilities.** A projected mean is
+never converted to a probability by a heuristic. The projection becomes the mean of an
+explicit predictive distribution whose variance comes from the player's own recent
+outcomes, and the probability of More/Less/Push is integrated from that distribution.
+See `docs/PREDICTION_METHODOLOGY.md`.
+
+**Missing context is reported, not imputed.** `FeatureSet.unavailable` lists the
+matchup, pace, injury, lineup and usage features the engine is designed to accept but
+cannot compute from current data; every result carries a `matchup_context_unavailable`
+warning until a source exists.
 
 **Minutes stored as decimal float.** `34:30` becomes `34.5`; per-minute rate features
 need arithmetic, not strings.

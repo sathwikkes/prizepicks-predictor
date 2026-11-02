@@ -13,12 +13,24 @@ import argparse
 import logging
 import sys
 from collections.abc import Sequence
+from datetime import date
 
+from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from prizepicks_predictor.config import get_settings
 from prizepicks_predictor.db import IngestionRun, create_db_engine, get_session_factory, init_db
 from prizepicks_predictor.ingestion import CsvGameLogProvider, ProviderError, load_game_logs
+from prizepicks_predictor.prediction import (
+    DistributionFamily,
+    PredictionError,
+    PredictionRequest,
+    PredictionResult,
+    StatType,
+    predict,
+)
+from prizepicks_predictor.prediction.models import DEFAULT_MODEL, MODELS
 from prizepicks_predictor.services import PlayerNotFoundError, find_players, get_player_game_logs
 
 
@@ -42,7 +54,59 @@ def _build_parser() -> argparse.ArgumentParser:
     logs.add_argument("--limit", type=int)
 
     sub.add_parser("runs", help="List ingestion runs")
+
+    pred = sub.add_parser("predict", help="Predict More/Less probabilities for a prop line")
+    pred.add_argument("--player-id", type=int, required=True, help="Internal player id")
+    pred.add_argument("--stat", required=True, choices=[s.value for s in StatType])
+    pred.add_argument("--line", type=float, required=True, help="Offered line, e.g. 24.5")
+    pred.add_argument("--date", required=True, help="Target game date (YYYY-MM-DD)")
+    pred.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODELS))
+    pred.add_argument(
+        "--distribution",
+        default=DistributionFamily.AUTO.value,
+        choices=[d.value for d in DistributionFamily],
+    )
     return parser
+
+
+def _print_prediction(result: PredictionResult) -> None:
+    f = result.features
+    p = result.probabilities
+    print(f"{result.player_name} (id={result.player_id}, team={result.team or '?'})")
+    print(f"  {result.stat_type.value} line {result.line:g}  |  game date {result.as_of_date}")
+    print(f"  model: {result.model.name} v{result.model.version}")
+    if result.model.projected_minutes is not None:
+        print(f"  projected minutes: {result.model.projected_minutes:.1f}")
+    print(f"  projected {result.stat_type.value}: {result.model.projection:.2f}")
+    print(
+        f"  distribution: {result.distribution.family.value} "
+        f"(mean {result.distribution.mean:.2f}, sd {result.distribution.std:.2f}, "
+        f"variance from {result.distribution.variance_sample_size} games)"
+    )
+    lo, hi = result.interval_80
+    print(f"  80% interval: {lo:.0f} - {hi:.0f}")
+    print(f"  P(more) = {p.more:.3f}   P(less) = {p.less:.3f}   P(push) = {p.push:.3f}")
+    print(
+        f"  sample: {result.sample_size} games with minutes before cutoff "
+        f"(season {f.season_start_year}: {f.season_games} games; dnp excluded: {f.dnp_games})"
+    )
+    print(
+        "  features: "
+        f"season {_fmt(f.season_mean)}, last5 {_fmt(f.last5_mean)}, last10 {_fmt(f.last10_mean)}, "
+        f"ewma {_fmt(f.ewma_mean)}, per-min(recent) {_fmt(f.per_minute_recent, 3)}, "
+        f"min(recent) {_fmt(f.minutes_recent_mean, 1)}, rest {f.rest_days}d"
+    )
+    print(f"  calibration: {result.calibration_status}")
+    if result.warnings:
+        print("  warnings: " + ", ".join(w.value for w in result.warnings))
+    for note in result.distribution.notes:
+        print(f"  note: {note}")
+    for assumption in result.model.assumptions:
+        print(f"  assumes: {assumption}")
+
+
+def _fmt(value: float | None, digits: int = 2) -> str:
+    return "n/a" if value is None else f"{value:.{digits}f}"
 
 
 def _print_table(headers: Sequence[str], rows: Sequence[Sequence[object]]) -> None:
@@ -123,6 +187,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                     for r in rows
                 ],
             )
+            return 0
+
+        if args.command == "predict":
+            try:
+                request = PredictionRequest(
+                    player_id=args.player_id,
+                    stat_type=StatType(args.stat),
+                    line=args.line,
+                    as_of_date=date.fromisoformat(args.date),
+                    model_name=args.model,
+                    distribution=DistributionFamily(args.distribution),
+                )
+            except (ValidationError, ValueError) as exc:
+                print(f"error: invalid request: {exc}", file=sys.stderr)
+                return 2
+            try:
+                prediction = predict(session, request)
+            except PlayerNotFoundError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            except PredictionError as exc:
+                print(f"insufficient data / prediction error: {exc}", file=sys.stderr)
+                return 3
+            except SQLAlchemyError as exc:
+                print(f"error: database failure: {exc}", file=sys.stderr)
+                return 4
+            _print_prediction(prediction)
             return 0
 
         if args.command == "runs":
