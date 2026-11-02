@@ -43,3 +43,95 @@ def test_cli_missing_csv_returns_2(
     main(["--database-url", db_url, "init-db"])
     assert main(["--database-url", db_url, "ingest-csv", str(tmp_path / "missing.csv")]) == 2
     assert "not found" in capsys.readouterr().err
+
+
+def test_cli_predict_happy_path(
+    db_url: str, synthetic_csv: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(["--database-url", db_url, "init-db"])
+    main(["--database-url", db_url, "ingest-csv", str(synthetic_csv), "--source", "fx"])
+    capsys.readouterr()
+    code = main(
+        [
+            "--database-url",
+            db_url,
+            "predict",
+            "--player-id",
+            "1",
+            "--stat",
+            "points",
+            "--line",
+            "24.5",
+            "--date",
+            "2024-12-01",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Alex Rivera" in out and "P(more)" in out and "P(push) = 0.000" in out
+    assert "model: ewma" in out and "calibration: unvalidated" in out
+    assert "12 games with minutes" in out
+
+    code = main(
+        [
+            "--database-url",
+            db_url,
+            "predict",
+            "--player-id",
+            "1",
+            "--stat",
+            "rebounds",
+            "--line",
+            "8",
+            "--date",
+            "2024-12-01",
+            "--model",
+            "minutes_adjusted",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0 and "projected minutes" in out and "P(push) = 0.000" not in out
+
+
+def test_cli_predict_error_codes(
+    db_url: str, synthetic_csv: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(["--database-url", db_url, "init-db"])
+    main(["--database-url", db_url, "ingest-csv", str(synthetic_csv)])
+    base = ["--database-url", db_url, "predict", "--stat", "points", "--date", "2024-12-01"]
+    assert main([*base, "--player-id", "1", "--line", "24.3"]) == 2  # invalid line
+    assert "invalid request" in capsys.readouterr().err
+    assert main([*base, "--player-id", "999", "--line", "24.5"]) == 1  # unknown player
+    assert (
+        main(
+            [
+                "--database-url",
+                db_url,
+                "predict",
+                "--player-id",
+                "1",
+                "--stat",
+                "points",
+                "--line",
+                "24.5",
+                "--date",
+                "2024-10-27",
+            ]
+        )
+        == 3
+    )
+    assert "insufficient data" in capsys.readouterr().err
+    with pytest.raises(SystemExit):  # --date is required
+        main(
+            [
+                "--database-url",
+                db_url,
+                "predict",
+                "--player-id",
+                "1",
+                "--stat",
+                "points",
+                "--line",
+                "24.5",
+            ]
+        )
