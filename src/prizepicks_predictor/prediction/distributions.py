@@ -32,6 +32,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+from numpy.typing import NDArray
 from scipy import stats
 
 from prizepicks_predictor.prediction.schemas import (
@@ -63,6 +65,51 @@ def predictive_variance(values: Sequence[float], *, mean: float) -> VarianceEsti
     return VarianceEstimate(variance=var, sample_size=n, inflated=True)
 
 
+def negative_binomial_params(mean: float, variance: float) -> tuple[float, float]:
+    """(r, p) for scipy's nbinom from a mean/variance pair with variance > mean."""
+    r = min(mean**2 / (variance - mean), MAX_NB_R)
+    return r, r / (r + mean)
+
+
+def resolve_family(family: DistributionFamily, mean: float, variance: float) -> DistributionFamily:
+    """Turn AUTO into a concrete family and apply the NB -> Poisson fallback.
+
+    EMPIRICAL is returned unchanged; callers decide whether enough history exists.
+    """
+    if family is DistributionFamily.AUTO:
+        family = choose_family(mean, variance)
+    if family is DistributionFamily.NEGATIVE_BINOMIAL and variance <= mean * 1.0001:
+        return DistributionFamily.POISSON
+    return family
+
+
+def pmf_array(
+    family: DistributionFamily, *, mean: float, variance: float, kmax: int
+) -> NDArray[np.float64]:
+    """Vectorised pmf over k = 0..kmax for a concrete (non-AUTO, non-EMPIRICAL) family.
+
+    Produces the same values as ``Predictive.pmf`` (tested) but in one scipy call, which
+    is what makes a walk-forward backtest over hundreds of thousands of player-games
+    affordable. Mass beyond ``kmax`` is left in the tail (the array does not sum to 1 if
+    ``kmax`` is too small; callers size it from the standard deviation).
+    """
+    mean = max(mean, 1e-6)
+    ks = np.arange(kmax + 1)
+    if family is DistributionFamily.POISSON:
+        return np.asarray(stats.poisson.pmf(ks, mu=mean), dtype=np.float64)
+    if family is DistributionFamily.NEGATIVE_BINOMIAL:
+        r, p = negative_binomial_params(mean, variance)
+        return np.asarray(stats.nbinom.pmf(ks, n=r, p=p), dtype=np.float64)
+    if family is DistributionFamily.NORMAL:
+        sigma = math.sqrt(variance)
+        zero_mass = float(stats.norm.cdf(-0.5, loc=mean, scale=sigma))
+        upper = stats.norm.cdf(ks + 0.5, loc=mean, scale=sigma)
+        lower = stats.norm.cdf(ks - 0.5, loc=mean, scale=sigma)
+        lower = np.where(ks == 0, zero_mass, lower)
+        return np.asarray((upper - lower) / (1.0 - zero_mass), dtype=np.float64)
+    raise ValueError(f"pmf_array needs a concrete family, got {family}")
+
+
 class Predictive:
     """Thin wrapper over a scipy frozen distribution (or empirical pmf) on integers."""
 
@@ -89,9 +136,7 @@ class Predictive:
             self.parameters = {"mu": mean}
             self._dist = stats.poisson(mu=mean)
         elif family is DistributionFamily.NEGATIVE_BINOMIAL:
-            r = mean**2 / (variance - mean)
-            r = min(r, MAX_NB_R)
-            p = r / (r + mean)
+            r, p = negative_binomial_params(mean, variance)
             self.parameters = {"r": r, "p": p}
             self._dist = stats.nbinom(n=r, p=p)
         elif family is DistributionFamily.NORMAL:
@@ -231,9 +276,10 @@ def build_predictive(
         family = choose_family(mean, variance)
         notes.append(f"auto selected {family.value} (mean={mean:.2f}, var={variance:.2f})")
 
-    if family is DistributionFamily.NEGATIVE_BINOMIAL and variance <= mean * 1.0001:
+    resolved = resolve_family(family, mean, variance)
+    if resolved is not family:
         notes.append("variance <= mean; negative binomial undefined, using poisson")
-        family = DistributionFamily.POISSON
+    family = resolved
 
     if family is DistributionFamily.NORMAL:
         notes.append("normal approximation with +/-0.5 continuity correction, truncated at 0")

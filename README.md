@@ -8,17 +8,20 @@ expected-value analysis for PrizePicks More/Less projections.
 
 ## Status
 
-**Phases 1, 2 and 2.5 are implemented.** The repository has a SQLite schema, a
+**Phases 1, 2, 2.5 and 3 are implemented.** The repository has a SQLite schema, a
 provider-agnostic ingestion framework, four interpretable baseline models, count-aware
 predictive distributions, a CLI that turns a player, stat, line and game date into
 More/Less/Push probabilities, and a free real-data pipeline that loads NBA.com box scores
 for 2023-24 through the current season from SportsDataverse's public GitHub releases.
 
-Probabilities are **unvalidated**: the models now run on real history but have not yet been
-backtested against real outcomes. See [docs/ROADMAP.md](docs/ROADMAP.md),
-[docs/PREDICTION_METHODOLOGY.md](docs/PREDICTION_METHODOLOGY.md),
-[docs/DATA_SOURCES.md](docs/DATA_SOURCES.md), [docs/DATA_QUALITY_REPORT.md](docs/DATA_QUALITY_REPORT.md)
-and [docs/BACKTESTING_PLAN.md](docs/BACKTESTING_PLAN.md).
+Phase 3 adds a walk-forward backtesting framework and real-data evaluation of every
+baseline across three seasons. Results and their limits are in
+[docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md). Probabilities are measured against
+**synthetic** evaluation lines, not PrizePicks lines, so nothing here is a wagering claim.
+See also [docs/ROADMAP.md](docs/ROADMAP.md), [docs/PREDICTION_METHODOLOGY.md](docs/PREDICTION_METHODOLOGY.md),
+[docs/BACKTESTING_PLAN.md](docs/BACKTESTING_PLAN.md), [docs/LEAKAGE_AUDIT.md](docs/LEAKAGE_AUDIT.md),
+[docs/LICENSING_RISK.md](docs/LICENSING_RISK.md), [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)
+and [docs/DATA_QUALITY_REPORT.md](docs/DATA_QUALITY_REPORT.md).
 
 ## Setup
 
@@ -51,6 +54,27 @@ uv run ppp predict --player-id <id> --stat points --line 27.5 --date 2025-03-01
 `ingest-sdv` is idempotent: re-running it downloads nothing (files are cached) and reports
 `unchanged=…`. Add `--season-types regular,playoffs` for playoff games or `--include-dnp`
 to store did-not-play rows as 0-minute games.
+
+## Backtesting
+
+```bash
+# smoke test: 500 random eligible player-games from one season, all stats and models
+uv run ppp backtest --season 2023-24 --max-observations 500 --run-name smoke
+
+# full seasons (about 6-8 minutes each); keep development / validation / test separate
+uv run ppp backtest --season 2023-24 --run-name dev_2023-24
+uv run ppp backtest --season 2024-25 --run-name val_2024-25
+uv run ppp backtest --season 2025-26 --run-name test_2025-26
+
+# fit Platt and isotonic calibrators on the validation run, evaluate on the held-out run
+uv run ppp calibrate --fit-run data/backtests/val_2024-25 --eval-run data/backtests/test_2025-26 \
+    --stat points --model ewma --family auto
+```
+
+Each run directory (gitignored, under `data/backtests/`) holds `run.json` (config and
+provenance), `observations.csv.gz`, `predictions.csv.gz`, `comparison.csv`, `strata.csv`,
+`reliability.csv`, `summary.md` and `charts/`. Options: `--stat`, `--models`, `--families`,
+`--min-prior-games`, `--max-observations`, `--seed`, `--date-from/--date-to`, `--no-charts`.
 
 ## Quickstart with the synthetic fixture (software check only)
 
@@ -109,10 +133,12 @@ src/prizepicks_predictor/
   ingestion/         # provider adapters (csv, sportsdataverse, balldontlie) + idempotent loader
   services/          # query layer used by the CLI and, later, the API
   prediction/        # features -> baseline models -> distributions -> predict()
+  backtest/          # walk-forward engine, metrics, calibration, reports
   cli.py             # `ppp` command-line entry point
 tests/               # pytest suite
 data/samples/        # committed synthetic fixtures (labeled as such)
 data/raw/            # downloaded real data cache (gitignored)
+data/backtests/      # backtest run outputs (gitignored)
 scripts/             # fixture generator
 docs/                # roadmap, architecture notes, data-source evaluation
 ```
