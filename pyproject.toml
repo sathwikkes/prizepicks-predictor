@@ -1,0 +1,54 @@
+[project]
+name = "prizepicks-predictor"
+version = "0.1.0"
+description = "NBA player prop analytics: statistical forecasting, probability calibration, and expected-value analysis for PrizePicks More/Less projections."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "sqlalchemy>=2.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+ppp = "prizepicks_predictor.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/prizepicks_predictor"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W", "SIM", "RUF"]
+ignore = ["RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning:prizepicks_predictor.*"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["prizepicks_predictor"]
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
