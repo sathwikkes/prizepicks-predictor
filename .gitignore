@@ -218,3 +218,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- PrizePicks Predictor ---
+# Local databases and raw/intermediate data. Committed fixtures live in data/samples/.
+data/*
+!data/samples/
+!data/samples/**
+*.db
+*.sqlite
+*.sqlite3
