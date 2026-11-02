@@ -8,11 +8,15 @@ expected-value analysis for PrizePicks More/Less projections.
 
 ## Status
 
-**Phase 1 (data foundation) is implemented.** The repository has a SQLite schema, a
-provider-agnostic ingestion framework, a working CSV ingestion path with a clearly labeled
-synthetic fixture, a BALLDONTLIE adapter (unit-tested against a mocked API only), and a CLI
-that queries a player's historical game logs. See [docs/ROADMAP.md](docs/ROADMAP.md) for the
-phase plan and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for the provider evaluation.
+**Phase 1 (data foundation) and Phase 2 (baseline prediction engine) are implemented.**
+The repository has a SQLite schema, a provider-agnostic ingestion framework with a labeled
+synthetic fixture, four interpretable baseline models, count-aware predictive distributions,
+and a CLI that turns a player, stat, line and game date into More/Less/Push probabilities.
+
+Probabilities are **unvalidated**: no model here has been evaluated against real NBA
+results. See [docs/ROADMAP.md](docs/ROADMAP.md) for the plan,
+[docs/PREDICTION_METHODOLOGY.md](docs/PREDICTION_METHODOLOGY.md) for the statistics, and
+[docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for the provider evaluation.
 
 ## Setup
 
@@ -36,9 +40,25 @@ uv run ppp ingest-csv data/samples/synthetic_game_logs.csv --source csv_fixture
 uv run ppp players --search riv
 uv run ppp game-logs "Alex Rivera" --limit 5
 uv run ppp runs
+
+# 4. Predict (synthetic player, synthetic stats: output is a software check, not a forecast)
+uv run ppp predict --player-id 1 --stat points --line 24.5 --date 2024-12-01
+uv run ppp predict --player-id 1 --stat rebounds --line 8 --date 2024-12-01 --model minutes_adjusted
 ```
 
 Re-running the ingest command is safe: it reports `unchanged=72` and inserts nothing.
+
+### Prediction options
+
+| Flag | Values | Notes |
+| --- | --- | --- |
+| `--stat` | `points`, `rebounds`, `assists` | |
+| `--line` | multiple of 0.5 | integer lines report a push probability |
+| `--date` | `YYYY-MM-DD` | only games strictly before this date are used |
+| `--model` | `season_average`, `rolling_5`, `rolling_10`, `ewma` (default), `minutes_adjusted` | |
+| `--distribution` | `auto` (default), `poisson`, `negative_binomial`, `normal`, `empirical` | `auto` picks Negative Binomial when overdispersed |
+
+Exit codes: 0 ok, 1 unknown player, 2 invalid request, 3 insufficient data, 4 database failure.
 
 ### Loading your own CSV
 
@@ -64,6 +84,7 @@ src/prizepicks_predictor/
   schemas/           # Pydantic contracts (NormalizedGameLog, GameLogRow)
   ingestion/         # provider adapters (csv, balldontlie) + idempotent loader
   services/          # query layer used by the CLI and, later, the API
+  prediction/        # features -> baseline models -> distributions -> predict()
   cli.py             # `ppp` command-line entry point
 tests/               # pytest suite
 data/samples/        # committed synthetic fixtures (labeled as such)
