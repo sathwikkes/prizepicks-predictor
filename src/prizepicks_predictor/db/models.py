@@ -8,7 +8,8 @@ Design notes
   tables.
 * Natural uniqueness constraints protect against duplicate records:
   - ``teams.abbreviation``
-  - ``games (game_date, home_team_id, away_team_id)``
+  - ``games (game_date, home_team_id, away_team_id)``; ``games.season_type`` separates
+    regular-season games from playoffs/play-in/preseason
   - ``player_game_stats (game_id, player_id)``
   - ``external_ids (source, entity_type, external_id)``
 * ``ingestion_runs`` records provenance for every load. Each stat row points at
@@ -92,6 +93,10 @@ class Game(Base):
     home_score: Mapped[int | None] = mapped_column(Integer)
     away_score: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(16), default="final", nullable=False)
+    #: regular | playoffs | playin | preseason | allstar | other
+    season_type: Mapped[str] = mapped_column(
+        String(16), default="regular", server_default="regular", nullable=False, index=True
+    )
 
     season: Mapped[Season] = relationship(back_populates="games")
     home_team: Mapped[Team] = relationship(foreign_keys=[home_team_id])

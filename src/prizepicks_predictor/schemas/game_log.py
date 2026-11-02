@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 #: leaves room for data quirks while still catching obviously broken values.
 MAX_MINUTES = 80.0
 
+SEASON_TYPES = frozenset({"regular", "playoffs", "playin", "preseason", "allstar", "other"})
+
 
 def season_start_year_for(game_date: date) -> int:
     """Infer the season start year from a game date.
@@ -41,6 +43,11 @@ class NormalizedGameLog(BaseModel):
     is_home: bool
     game_date: date
     season_start_year: int | None = Field(default=None, ge=1946, le=2100)
+    season_type: str = Field(
+        default="regular", description="regular|playoffs|playin|preseason|allstar|other"
+    )
+    team_name: str | None = Field(default=None, max_length=64)
+    position: str | None = Field(default=None, max_length=8)
 
     minutes: float = Field(ge=0, le=MAX_MINUTES)
     points: int = Field(ge=0, le=150)
@@ -59,6 +66,15 @@ class NormalizedGameLog(BaseModel):
     @classmethod
     def _upper(cls, value: object) -> object:
         return value.upper() if isinstance(value, str) else value
+
+    @field_validator("season_type", mode="before")
+    @classmethod
+    def _season_type(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip().lower() or "regular"
+            if value not in SEASON_TYPES:
+                raise ValueError(f"season_type must be one of {sorted(SEASON_TYPES)}")
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -102,6 +118,7 @@ class GameLogRow(BaseModel):
 
     game_date: date
     season: str
+    season_type: str = "regular"
     player_id: int
     player_name: str
     team: str

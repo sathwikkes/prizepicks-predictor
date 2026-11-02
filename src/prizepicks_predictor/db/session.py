@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -38,9 +38,22 @@ def create_db_engine(database_url: str, *, echo: bool = False) -> Engine:
     return engine
 
 
+#: Columns added after the first release, applied to pre-existing databases.
+#: Alembic replaces this once the schema needs anything more than ADD COLUMN.
+_COMPAT_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("games", "season_type", "VARCHAR(16) NOT NULL DEFAULT 'regular'"),
+)
+
+
 def init_db(engine: Engine) -> None:
-    """Create all tables. Idempotent: existing tables are left untouched."""
+    """Create all tables and add any columns missing from an older database. Idempotent."""
     Base.metadata.create_all(engine)
+    inspector = inspect(engine)
+    for table, column, ddl in _COMPAT_COLUMNS:
+        existing = {c["name"] for c in inspector.get_columns(table)}
+        if column not in existing:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
 def get_session_factory(engine: Engine) -> sessionmaker[Session]:

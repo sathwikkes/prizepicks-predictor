@@ -73,17 +73,20 @@ class _EntityResolver:
             self._seasons[start_year] = season
         return self._seasons[start_year]
 
-    def team(self, abbreviation: str) -> Team:
+    def team(self, abbreviation: str, name: str | None = None) -> Team:
         if abbreviation not in self._teams:
             team = self.session.scalar(select(Team).where(Team.abbreviation == abbreviation))
             if team is None:
-                team = Team(abbreviation=abbreviation)
+                team = Team(abbreviation=abbreviation, name=name)
                 self.session.add(team)
                 self.session.flush()
             self._teams[abbreviation] = team
-        return self._teams[abbreviation]
+        team = self._teams[abbreviation]
+        if name and not team.name:
+            team.name = name
+        return team
 
-    def player(self, external_id: str, full_name: str) -> Player:
+    def player(self, external_id: str, full_name: str, position: str | None = None) -> Player:
         if external_id not in self._players:
             mapping = self.session.scalar(
                 select(ExternalId).where(
@@ -97,7 +100,7 @@ class _EntityResolver:
                 if player is None:  # pragma: no cover - FK prevents this
                     raise RuntimeError(f"dangling external id {mapping.id}")
             else:
-                player = Player(full_name=full_name)
+                player = Player(full_name=full_name, position=position)
                 self.session.add(player)
                 self.session.flush()
                 self.session.add(
@@ -127,6 +130,7 @@ class _EntityResolver:
                     game_date=record.game_date,
                     home_team_id=home.id,
                     away_team_id=away.id,
+                    season_type=record.season_type,
                 )
                 self.session.add(game)
                 self.session.flush()
@@ -199,11 +203,11 @@ def load_game_logs(session: Session, provider: GameLogProvider) -> LoadResult:
             season_year = item.season_start_year
             assert season_year is not None  # populated by schema validator
             season = resolver.season(season_year)
-            team = resolver.team(item.team)
+            team = resolver.team(item.team, item.team_name)
             opponent = resolver.team(item.opponent)
             home, away = (team, opponent) if item.is_home else (opponent, team)
             game = resolver.game(item, season, home, away)
-            player = resolver.player(item.source_player_id, item.player_name)
+            player = resolver.player(item.source_player_id, item.player_name, item.position)
 
             existing = session.scalar(
                 select(PlayerGameStat).where(

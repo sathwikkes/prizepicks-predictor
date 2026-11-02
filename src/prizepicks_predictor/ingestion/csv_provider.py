@@ -7,7 +7,7 @@ Expected columns (header names are case-insensitive):
 
 Optional columns:
 
-    source_game_id, season, steals, blocks, turnovers, fg3m, started,
+    source_game_id, season, season_type, steals, blocks, turnovers, fg3m, started,
     team_score, opponent_score
 
 ``home_away`` accepts ``home``/``away`` or ``H``/``A``. ``minutes`` accepts a
@@ -95,6 +95,7 @@ def row_to_game_log(row: dict[str, str], *, source: str) -> NormalizedGameLog:
         is_home=parse_home_away(row["home_away"]),
         game_date=date.fromisoformat(row["game_date"].strip()),
         season_start_year=int(season_raw) if season_raw and season_raw.strip() else None,
+        season_type=row.get("season_type") or "regular",
         minutes=parse_minutes(row["minutes"]),
         points=int(row["points"]),
         rebounds=int(row["rebounds"]),
