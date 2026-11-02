@@ -23,6 +23,7 @@ CLI / (future) FastAPI
 | `prediction/models.py` | four baseline `ProjectionModel`s and the registry | schemas |
 | `prediction/distributions.py` | Poisson / NegBin / Normal / Empirical, More/Less/Push | schemas, scipy |
 | `prediction/service.py` | orchestration, error mapping, warnings | all of the above, services |
+| `services/data_quality.py` | coverage, integrity and provenance report | db |
 
 Adding a model means implementing `project(FeatureSet) -> ModelOutput` and registering it;
 nothing else changes. The same holds for a new distribution family.
@@ -47,6 +48,18 @@ stored in `external_ids(source, entity_type, external_id)`, so the same player c
 linked from several providers later without schema changes. Cross-source identity
 resolution (deciding that `csv:FIX-001` and `balldontlie:777` are the same person) is
 deliberately deferred.
+
+**Season type lives on the game.** `games.season_type` (regular, playoffs, playin,
+preseason, allstar, other) lets one database hold every game type while
+`get_player_game_logs` defaults to regular season, which is what full-game props are priced
+on. The prediction engine inherits that default. `init_db` adds the column to databases
+created before it existed.
+
+**Two-file provider joins happen inside the adapter.** The SportsDataverse adapter joins
+NBA.com player box scores to team game logs on `(game_id, team_id)` before emitting
+`NormalizedGameLog`, so the loader never learns about provider file layouts. Downloads are
+cached under `data/raw/` and re-used; schema drift (a missing column) is a `ProviderError`,
+not a silent miscount.
 
 **Natural uniqueness constraints at the database level.** `games(date, home, away)` and
 `player_game_stats(game, player)` are unique in the schema, not only in application
