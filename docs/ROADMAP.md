@@ -30,7 +30,7 @@ Dependencies are added only when the current phase needs them.
 
 ## Phases
 
-### Phase 1 — Repository foundation and data infrastructure ✅ (this release)
+### Phase 1 — Repository foundation and data infrastructure ✅
 
 Done when:
 - [x] uv project with Ruff, mypy, pytest configured; `.env.example`; README setup instructions.
