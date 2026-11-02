@@ -22,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from prizepicks_predictor.config import get_settings
 from prizepicks_predictor.db import IngestionRun, create_db_engine, get_session_factory, init_db
 from prizepicks_predictor.ingestion import CsvGameLogProvider, ProviderError, load_game_logs
+from prizepicks_predictor.ingestion.sportsdataverse import SportsDataverseProvider
 from prizepicks_predictor.prediction import (
     DistributionFamily,
     PredictionError,
@@ -32,6 +33,7 @@ from prizepicks_predictor.prediction import (
 )
 from prizepicks_predictor.prediction.models import DEFAULT_MODEL, MODELS
 from prizepicks_predictor.services import PlayerNotFoundError, find_players, get_player_game_logs
+from prizepicks_predictor.services.data_quality import build_report, render_report
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -44,6 +46,28 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest = sub.add_parser("ingest-csv", help="Load player game logs from a CSV file")
     ingest.add_argument("path")
     ingest.add_argument("--source", default="csv", help="Source label stored for provenance")
+
+    sdv = sub.add_parser(
+        "ingest-sdv",
+        help="Download and load real NBA box scores from SportsDataverse GitHub releases",
+    )
+    sdv.add_argument(
+        "--season",
+        type=int,
+        action="append",
+        required=True,
+        help="Season END year (2025 = 2024-25). Repeat for several seasons.",
+    )
+    sdv.add_argument(
+        "--season-types",
+        default="regular",
+        help="Comma list of regular,playoffs,playin,preseason (default: regular)",
+    )
+    sdv.add_argument("--include-dnp", action="store_true", help="Store DNP rows as 0-minute games")
+    sdv.add_argument("--cache-dir", default="data/raw/sportsdataverse")
+    sdv.add_argument("--force-download", action="store_true")
+
+    sub.add_parser("data-quality", help="Summarize what is stored: coverage, integrity, provenance")
 
     players = sub.add_parser("players", help="Search players by name")
     players.add_argument("--search", required=True)
@@ -124,6 +148,7 @@ def _print_table(headers: Sequence[str], rows: Sequence[Sequence[object]]) -> No
 def main(argv: Sequence[str] | None = None) -> int:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level, format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # signed download URLs are noise
     args = _build_parser().parse_args(argv)
 
     engine = create_db_engine(args.database_url or settings.database_url)
@@ -150,6 +175,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             for rejection in result.rejections[:20]:
                 print(f"  rejected {rejection}")
+            return 0
+
+        if args.command == "ingest-sdv":
+            season_types = tuple(t.strip() for t in args.season_types.split(",") if t.strip())
+            for season in args.season:
+                sdv_provider = SportsDataverseProvider(
+                    season,
+                    cache_dir=args.cache_dir,
+                    season_types=season_types,
+                    include_dnp=args.include_dnp,
+                    force_download=args.force_download,
+                )
+                try:
+                    result = load_game_logs(session, sdv_provider)
+                except ProviderError as exc:
+                    print(f"error: season {season}: {exc}", file=sys.stderr)
+                    return 2
+                finally:
+                    sdv_provider.close()
+                st = sdv_provider.stats
+                print(
+                    f"season {season} ({season - 1}-{season % 100:02d}) run #{result.run_id}: "
+                    f"box_rows={st.box_rows} yielded={st.yielded} inserted={result.inserted} "
+                    f"updated={result.updated} unchanged={result.unchanged} "
+                    f"rejected={result.rejected}"
+                )
+                print(
+                    f"  skipped: dnp={st.dnp_rows} {dict(st.dnp_reasons)} "
+                    f"season_type={dict(st.filtered_season_type)} no_team_log={st.missing_team_log}"
+                )
+                for rejection in result.rejections[:5]:
+                    print(f"  rejected {rejection}")
+            return 0
+
+        if args.command == "data-quality":
+            print(render_report(build_report(session)))
             return 0
 
         if args.command == "players":

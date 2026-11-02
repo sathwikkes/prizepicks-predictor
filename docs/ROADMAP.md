@@ -56,10 +56,27 @@ Done when:
 - [ ] Prediction is reproducible: same inputs and model version give identical output.
 - [ ] Tests cover the no-leakage guarantee (target game excluded from features).
 
+### Phase 2.5 — Free real NBA data ✅
+
+Done when:
+- [x] A verified, free, permitted source of real player game logs: SportsDataverse GitHub
+      releases of NBA.com box scores (no key, no payment, MIT-licensed repository).
+- [x] `SportsDataverseProvider` joins player box scores to team game logs for dates,
+      opponents and scores; caches downloads; idempotent; provenance recorded.
+- [x] 2023-24, 2024-25, 2025-26 complete regular seasons and the in-progress 2026-27
+      season loaded: 3,778 games, 81,348 player-games, 854 players, 0 rejected.
+- [x] `games.season_type` separates regular season from playoffs/play-in; queries and
+      predictions default to regular season.
+- [x] Data-quality report (`ppp data-quality`, `docs/DATA_QUALITY_REPORT.md`) and a
+      300-row cross-check against ESPN box scores with zero stat discrepancies.
+- [x] Predictions demonstrated on real players with illustrative lines; still unvalidated.
+- [x] Walk-forward evaluation designed (`docs/BACKTESTING_PLAN.md`).
+
 ### Phase 3 — Model training and validation
 
 Done when:
-- [ ] Walk-forward backtest harness over the historical dataset (chronological folds).
+- [ ] Walk-forward backtest harness per `docs/BACKTESTING_PLAN.md`: develop on 2023-24,
+      calibrate on 2024-25, test once on 2025-26.
 - [ ] Metrics reported per stat type: MAE, RMSE, Brier, log loss, calibration curves, hit rate.
 - [ ] XGBoost / gradient-boosted models trained and compared against every baseline.
 - [ ] Probability calibration (Platt / isotonic) evaluated on held-out folds.

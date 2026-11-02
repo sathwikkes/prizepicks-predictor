@@ -86,3 +86,19 @@ def test_home_away_resolution(session: Session, tmp_path: Path) -> None:
     row = get_player_game_logs(session, "Pat Example")[0]
     assert row.game_date == date(2024, 11, 1)
     assert row.is_home is False and row.team == "BOS" and row.opponent == "LAL"
+
+
+def test_find_players_ignores_accents(session: Session, tmp_path: Path) -> None:
+    path = write_csv(
+        tmp_path / "accent.csv",
+        BASE_HEADER,
+        "2024-11-01,P1,Nikola Jokić,DEN,LAL,home,30:00,20,5,4",
+        "2024-11-01,P2,Jonas Valančiūnas,LAL,DEN,away,30:00,20,5,4",
+    )
+    load_game_logs(session, CsvGameLogProvider(path))
+    assert [p.full_name for p in find_players(session, "jokic")] == ["Nikola Jokić"]
+    assert [p.full_name for p in find_players(session, "Valanciunas")] == ["Jonas Valančiūnas"]
+    assert [p.full_name for p in find_players(session, "Jokić")] == ["Nikola Jokić"]
+    assert find_players(session, "Doncic") == []
+    # exact-match resolution also ignores accents
+    assert len(get_player_game_logs(session, "Nikola Jokic")) == 1
