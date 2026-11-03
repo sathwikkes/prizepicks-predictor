@@ -49,7 +49,8 @@ ppp monitor                          report
 | `evaluated` | the player's box row exists with minutes > 0 | yes |
 | `did_not_play` | the game's box score is loaded but the player has no row or 0 minutes | yes |
 | `voided` | the scheduled game is postponed or canceled | yes |
-| `missing_result` | no completed game found yet | no, re-evaluated on later runs |
+| `not_scheduled` | a schedule exists for the date and the player's team is not on it | yes |
+| `missing_result` | no completed game found yet, or no schedule for that date to rule one out | no, re-evaluated on later runs |
 
 A DNP is never scored as an under. A push (actual equals an integer line) is recorded and
 excluded from Brier and log loss. Snapshots whose tip-off is still in the future are
@@ -67,8 +68,11 @@ synthetic lines are not market results and are never reported as such.
 
 * Operational: schedule ingestion (ESPN, refreshed daily by SportsDataverse), box-score
   ingestion (about one day behind live games), forecast generation, evaluation, monitoring.
-* First genuine prospective batch: 1,191 snapshots for the 14 games of 2026-11-04,
-  generated 2026-11-03 05:15 UTC, earliest tip-off 2026-11-05 00:00 UTC. Evaluate with
+* First genuine prospective batch: 1,191 snapshot rows for the 14 games of 2026-11-04,
+  generated 2026-11-03 05:15 UTC, earliest tip-off 2026-11-05 00:00 UTC. The 1,191 rows
+  are 1,191 unique (player, game, stat) combinations: 397 expected participants x 3
+  stats, one batch, no revisions. `ppp monitor` and the dashboard overview report these
+  counts (`snapshot_stats`) so rows are never mistaken for games or players. Evaluate with
   `ppp ingest-sdv --season 2027 --force-download` then `ppp evaluate-predictions
   --through 2026-11-04` once the box scores are published.
 * Not available: confirmed active rosters, injury reports with timestamps, real lines.

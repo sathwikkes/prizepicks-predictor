@@ -141,6 +141,10 @@ def test_predict_integer_line_keeps_push(loaded: Session, registry: CalibratorRe
     cal = res.probabilities_calibrated
     assert cal is not None and cal.push == pytest.approx(res.probabilities.push)
     assert cal.more + cal.less + cal.push == pytest.approx(1.0)
+    # the artifact was fitted on half-point lines: say so at integer lines
+    assert WarningCode.CALIBRATION_INTEGER_LINE_UNVALIDATED in res.warnings
+    half = predict(loaded, _req(pid, StatType.REBOUNDS, 8.5), calibrators=registry)
+    assert WarningCode.CALIBRATION_INTEGER_LINE_UNVALIDATED not in half.warnings
 
 
 def test_predict_fallback_when_no_matching_artifact(

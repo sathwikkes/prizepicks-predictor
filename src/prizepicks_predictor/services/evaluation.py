@@ -10,6 +10,8 @@ Status policy
   This is not treated as an under; probabilistic metrics are left empty.
 * ``voided``: the scheduled game was postponed or canceled (the forecast was for a game
   that did not happen on that date).
+* ``not_scheduled``: the schedule for that date is loaded and the player's team has no
+  game on it (a manual or replay target for an off day). Final.
 * ``missing_result``: the game has not been ingested yet (or no game could be matched).
 Pushes (actual == integer line) are recorded; Brier/log loss are left empty for them.
 """
@@ -74,6 +76,21 @@ def _find_game(session: Session, snap: PredictionSnapshot) -> Game | None:
         .join(PlayerGameStat, PlayerGameStat.game_id == Game.id)
         .where(Game.game_date == snap.target_date, PlayerGameStat.player_id == snap.player_id)
     )
+
+
+def _team_not_scheduled(session: Session, snap: PredictionSnapshot) -> bool:
+    """True when a schedule exists for the target date and the player's team is not on it."""
+    if not snap.team:
+        return False
+    day = session.scalars(
+        select(ScheduledGame).where(ScheduledGame.game_date == snap.target_date)
+    ).all()
+    if not day:
+        return False
+    team = session.scalar(select(Team).where(Team.abbreviation == snap.team))
+    if team is None:
+        return False
+    return all(team.id not in (g.home_team_id, g.away_team_id) for g in day)
 
 
 def _logloss(p: float, y: int) -> float:
@@ -159,7 +176,12 @@ def evaluate_predictions(
                 continue
             game = _find_game(session, snap)
             stat_row = None
-            if game is None:
+            if game is None and _team_not_scheduled(session, snap):
+                status, note = (
+                    "not_scheduled",
+                    "schedule loaded; the player's team has no game on this date",
+                )
+            elif game is None:
                 status, note = "missing_result", "no completed game found in the database yet"
             else:
                 stat_row = session.scalar(

@@ -151,6 +151,8 @@ def predict(
                 held_out_ece_uncalibrated=held.ece_uncalibrated if held else None,
             )
             status = f"{artifact.method} ({artifact.validation_status}; synthetic lines only)"
+            if request.line_is_integer:
+                warnings.append(WarningCode.CALIBRATION_INTEGER_LINE_UNVALIDATED)
 
     return PredictionResult(
         player_id=player.id,

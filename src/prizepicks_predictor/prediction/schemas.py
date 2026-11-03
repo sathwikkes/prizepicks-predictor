@@ -34,6 +34,9 @@ class WarningCode(StrEnum):
     LONG_LAYOFF = "long_layoff"
     MATCHUP_CONTEXT_UNAVAILABLE = "matchup_context_unavailable"
     CALIBRATION_UNAVAILABLE = "calibration_unavailable"
+    #: calibrators were fitted on half-point lines; at integer lines the conditional map is
+    #: applied to P(more | no push) without having been validated for that case
+    CALIBRATION_INTEGER_LINE_UNVALIDATED = "calibration_integer_line_unvalidated"
 
 
 #: Matchup/availability inputs the engine is designed for but cannot compute yet.

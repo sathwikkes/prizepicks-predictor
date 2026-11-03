@@ -190,6 +190,45 @@ def build_monitor(
     return report
 
 
+@dataclass
+class SnapshotStats:
+    """What a set of snapshots represents: rows versus unique forecasts."""
+
+    snapshots: int
+    unique_player_game_stat: int
+    players: int
+    games: int
+    stats: int
+    batches: int
+    revisions_beyond_first: int
+    prospective: int  # saved before a known tip-off
+    unverified: int  # no tip-off to compare against (manual / replay targets)
+
+
+def snapshot_stats(
+    session: Session, *, target_date: date | None = None, batch_id: str | None = None
+) -> SnapshotStats:
+    stmt = select(PredictionSnapshot)
+    if target_date is not None:
+        stmt = stmt.where(PredictionSnapshot.target_date == target_date)
+    if batch_id is not None:
+        stmt = stmt.where(PredictionSnapshot.batch_id == batch_id)
+    snaps = session.scalars(stmt).all()
+    combos = {(s.player_id, s.target_date, s.scheduled_game_id, s.stat_type) for s in snaps}
+    prospective = sum(1 for s in snaps if s.tipoff_utc is not None and s.cutoff_at < s.tipoff_utc)
+    return SnapshotStats(
+        snapshots=len(snaps),
+        unique_player_game_stat=len(combos),
+        players=len({s.player_id for s in snaps}),
+        games=len({s.scheduled_game_id for s in snaps if s.scheduled_game_id is not None}),
+        stats=len({s.stat_type for s in snaps}),
+        batches=len({s.batch_id for s in snaps}),
+        revisions_beyond_first=sum(1 for s in snaps if s.revision > 1),
+        prospective=prospective,
+        unverified=len(snaps) - prospective,
+    )
+
+
 def _fmt(x: float | None, d: int = 3) -> str:
     return "n/a" if x is None or x != x else f"{x:.{d}f}"
 

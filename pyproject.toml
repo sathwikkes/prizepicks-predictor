@@ -24,6 +24,13 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
 ]
+dashboard = [
+    "streamlit>=1.40",
+    "plotly>=5.24",
+]
+
+[tool.uv]
+default-groups = ["dev", "dashboard"]
 
 [build-system]
 requires = ["hatchling"]
@@ -57,5 +64,5 @@ mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["scipy", "scipy.*", "matplotlib", "matplotlib.*"]
+module = ["scipy", "scipy.*", "matplotlib", "matplotlib.*", "plotly", "plotly.*", "streamlit", "streamlit.*", "pandas", "pandas.*"]
 ignore_missing_imports = true
