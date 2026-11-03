@@ -109,3 +109,18 @@ def test_report_strata_include_rest_buckets(tmp_path: Path) -> None:
     cmp = analyse(observations, predictions, OFFSETS, resamples=20)
     rest_rows = {(bucket, r.n) for stratum, bucket, r in cmp.strata if stratum == "rest"}
     assert rest_rows == {("back_to_back", 30), ("normal", 30), ("long_rest", 30)}
+
+
+def test_cli_fit_schedule_factors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from prizepicks_predictor.cli import main
+
+    run = tmp_path / "dev"
+    _fake_run(run)
+    out = tmp_path / "f.json"
+    url = f"sqlite:///{tmp_path / 'x.db'}"
+    assert (
+        main(["--database-url", url, "fit-schedule-factors", "--run", str(run), "--out", str(out)])
+        == 0
+    )
+    assert out.is_file() and "back_to_back" in capsys.readouterr().out
+    load_schedule_factors.cache_clear()

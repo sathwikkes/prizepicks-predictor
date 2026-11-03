@@ -1,0 +1,74 @@
+{
+  "fitted_at": "2026-11-03T06:47:24.066412+00:00",
+  "fit_run": "data/backtests/sched_dev_2023-24",
+  "fit_seasons": [
+    2023
+  ],
+  "base_model": "ewma/auto",
+  "method": "ratio of sums per bucket, normalised to normal rest (venue: to all games)",
+  "min_bucket_n": 200,
+  "counts": {
+    "points": {
+      "normal": 10448,
+      "away": 10455,
+      "all": 21032,
+      "long_rest": 4051,
+      "home": 10577,
+      "back_to_back": 3667,
+      "three_in_four": 2866
+    },
+    "rebounds": {
+      "normal": 10448,
+      "away": 10455,
+      "all": 21032,
+      "long_rest": 4051,
+      "home": 10577,
+      "back_to_back": 3667,
+      "three_in_four": 2866
+    },
+    "assists": {
+      "normal": 10448,
+      "away": 10455,
+      "all": 21032,
+      "long_rest": 4051,
+      "home": 10577,
+      "back_to_back": 3667,
+      "three_in_four": 2866
+    }
+  },
+  "factors": {
+    "points": {
+      "back_to_back": 1.02523,
+      "three_in_four": 1.00409,
+      "long_rest": 0.98409,
+      "normal": 1.0,
+      "home": 1.00687,
+      "away": 0.99307
+    },
+    "rebounds": {
+      "back_to_back": 1.02247,
+      "three_in_four": 1.01389,
+      "long_rest": 1.00837,
+      "normal": 1.0,
+      "home": 1.00616,
+      "away": 0.99375
+    },
+    "assists": {
+      "back_to_back": 1.01078,
+      "three_in_four": 0.98751,
+      "long_rest": 0.98447,
+      "normal": 1.0,
+      "home": 1.0177,
+      "away": 0.9822
+    }
+  },
+  "status": "research_only_not_default",
+  "validation": {
+    "run": "data/backtests/sched_val_2024-25 (summaries in docs/backtests/sched_val_2024-25)",
+    "seasons": [
+      2024
+    ],
+    "verdict": "no improvement over ewma; MAE +0.002 points, +0.003 rebounds, -0.001 assists; worse on back-to-backs; Brier within noise",
+    "note": "the back-to-back ratio was > 1 on 2023-24 and the realised bias on 2024-25 back-to-backs was negative; the effect does not generalise"
+  }
+}

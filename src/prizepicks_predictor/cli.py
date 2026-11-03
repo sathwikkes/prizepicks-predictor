@@ -174,6 +174,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Readiness checks: schema, data coverage, schedule, artifacts, smoke prediction",
     )
 
+    sf = sub.add_parser(
+        "fit-schedule-factors", help="Fit rest/venue factors from a development backtest run"
+    )
+    sf.add_argument("--run", required=True, help="backtest run directory (development season)")
+    sf.add_argument("--out", default="artifacts/schedule_factors.json")
+
     bk = sub.add_parser("backup", help="Write a consistent copy of the SQLite database")
     bk.add_argument(
         "--out", help="destination file (default data/backups/prizepicks-<UTC timestamp>.sqlite)"
