@@ -8,7 +8,7 @@ expected-value analysis for PrizePicks More/Less projections.
 
 ## Status
 
-**Phases 1, 2, 2.5, 3 and 3.5 are implemented.** The repository has a SQLite schema, a
+**Phases 1, 2, 2.5, 3, 3.5 and 4A are implemented.** The repository has a SQLite schema, a
 provider-agnostic ingestion framework, four interpretable baseline models, count-aware
 predictive distributions, a CLI that turns a player, stat, line and game date into
 More/Less/Push probabilities, and a free real-data pipeline that loads NBA.com box scores
@@ -36,6 +36,15 @@ Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 uv sync --all-groups
 cp .env.example .env   # optional; defaults work for local development
 ```
+
+## Dashboard
+
+```bash
+uv run streamlit run src/prizepicks_predictor/dashboard/app.py
+```
+
+Five pages: data status, player exploration, prediction analysis, prospective forecasts,
+model performance. See [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
 ## Quickstart with real NBA data
 
@@ -159,6 +168,7 @@ src/prizepicks_predictor/
   prediction/        # features -> baseline models -> distributions -> predict()
   backtest/          # walk-forward engine, metrics, calibration fitting, reports
   services/forecast.py, evaluation.py, monitoring.py   # prospective tracking
+  dashboard/         # Streamlit pages (presentation only) over the services
 artifacts/calibration/   # versioned calibration artifacts (committed, small)
   cli.py             # `ppp` command-line entry point
 tests/               # pytest suite

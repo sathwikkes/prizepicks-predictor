@@ -48,6 +48,12 @@ p_push_cal  = p_push                              (unchanged, from the count dis
 The three calibrated values sum to 1 by construction; More and Less are never calibrated
 separately. Raw probabilities are always returned alongside.
 
+At integer lines this is an extrapolation: the artifact was fitted where pushes cannot
+occur, and the held-out evaluation covered only half-point lines. `predict()` therefore
+adds the `calibration_integer_line_unvalidated` warning whenever a calibrated result is
+produced at an integer threshold. Validating the conditional map at integer lines needs
+a backtest with integer offsets, which is a small Phase 4B task.
+
 ## Fallback
 
 `probabilities_calibrated` is `None`, `calibration_status` starts with `uncalibrated:` and

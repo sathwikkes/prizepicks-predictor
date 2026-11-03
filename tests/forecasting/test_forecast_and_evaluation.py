@@ -27,7 +27,7 @@ from prizepicks_predictor.services.forecast import (
     run_forecast,
     scheduled_games_on,
 )
-from prizepicks_predictor.services.monitoring import build_monitor, render_monitor
+from prizepicks_predictor.services.monitoring import build_monitor, render_monitor, snapshot_stats
 from tests.conftest import BASE_HEADER, write_csv
 from tests.forecasting.conftest import AFTER_TIPOFF, BEFORE_TIPOFF, TARGET, TIPOFF
 
@@ -376,3 +376,84 @@ def test_push_outcome_has_no_brier(scheduled: Session) -> None:
     assert out.outcome_more is None and out.brier_raw is None
     rep = build_monitor(scheduled)
     assert rep.overall is not None and rep.overall.pushes == 1 and rep.overall.n_prob == 0
+
+
+def test_not_scheduled_distinguished_from_missing_result(
+    scheduled: Session, registry: CalibratorRegistry
+) -> None:
+    """A schedule exists for the date; Morgan Adeyemi's DEN plays (g2) but Riley
+    Castellano's MIA ... both play in g2. Use a manual target for a player whose team has
+    no game that day by adding a third team's player: Alex Rivera's BOS plays in g1, so
+    change g1 to a different pair and check Rivera becomes not_scheduled."""
+    g1 = _game(scheduled, "g1")
+    # make g1 a DEN vs MIA duplicate so BOS and LAL have no game on TARGET
+    g1.home_team_id, g1.away_team_id = (
+        _game(scheduled, "g2").home_team_id,
+        _game(scheduled, "g2").away_team_id,
+    )
+    scheduled.commit()
+    pid = _rivera(scheduled)
+    run_forecast(
+        scheduled,
+        target_date=TARGET,
+        stats=[StatType.POINTS],
+        now=BEFORE_TIPOFF,
+        save=True,
+        manual_targets=[ManualTarget(pid, StatType.POINTS, 24.5)],
+        calibrators=registry,
+    )
+    s = evaluate_predictions(scheduled, through=TARGET, now=AFTER_TIPOFF + timedelta(days=1))
+    assert s.statuses == {"not_scheduled": 1}
+    out = scheduled.scalar(select(PredictionOutcome))
+    assert out is not None and out.status == "not_scheduled" and out.actual is None
+    # final: a later run does not touch it
+    again = evaluate_predictions(scheduled, through=TARGET, now=AFTER_TIPOFF + timedelta(days=2))
+    assert again.considered == 0
+
+
+def test_missing_result_when_no_schedule_for_date(loaded: Session) -> None:
+    pid = _rivera(loaded)
+    run_forecast(
+        loaded,
+        target_date=TARGET,
+        stats=[StatType.POINTS],
+        now=BEFORE_TIPOFF,
+        save=True,
+        manual_targets=[ManualTarget(pid, StatType.POINTS, 24.5)],
+    )
+    s = evaluate_predictions(loaded, through=TARGET, now=AFTER_TIPOFF + timedelta(days=1))
+    assert s.statuses == {"missing_result": 1}  # cannot tell "no game" from "not loaded"
+
+
+def test_revisions_increment_and_duplicates_persist(scheduled: Session) -> None:
+    pid = _rivera(scheduled)
+    kw = dict(
+        target_date=TARGET,
+        stats=[StatType.POINTS],
+        save=True,
+        manual_targets=[ManualTarget(pid, StatType.POINTS, 24.5)],
+    )
+    r1 = run_forecast(scheduled, now=BEFORE_TIPOFF, **kw)  # type: ignore[arg-type]
+    r2 = run_forecast(scheduled, now=BEFORE_TIPOFF + timedelta(minutes=1), revise=True, **kw)  # type: ignore[arg-type]
+    r3 = run_forecast(scheduled, now=BEFORE_TIPOFF + timedelta(minutes=2), revise=True, **kw)  # type: ignore[arg-type]
+    r4 = run_forecast(scheduled, now=BEFORE_TIPOFF + timedelta(minutes=3), **kw)  # type: ignore[arg-type]
+    assert (r1.saved, r2.saved, r3.saved, r4.saved) == (1, 1, 1, 0) and r4.duplicates == 1
+    revs = sorted(s.revision for s in scheduled.scalars(select(PredictionSnapshot)))
+    assert revs == [1, 2, 3]
+    # a different line is a different forecast, not a duplicate
+    other = run_forecast(
+        scheduled,
+        target_date=TARGET,
+        stats=[StatType.POINTS],
+        save=True,
+        now=BEFORE_TIPOFF + timedelta(minutes=4),
+        manual_targets=[ManualTarget(pid, StatType.POINTS, 25.5)],
+    )
+    assert other.saved == 1 and other.duplicates == 0
+    stats = snapshot_stats(scheduled, target_date=TARGET)
+    assert (
+        stats.snapshots == 4
+        and stats.unique_player_game_stat == 1
+        and stats.revisions_beyond_first == 2
+    )
+    assert stats.prospective == 4 and stats.unverified == 0

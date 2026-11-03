@@ -100,7 +100,17 @@ Done when:
 - [x] First genuine prospective batch saved before tip-off (2026-11-04 games).
 - [ ] Daily scheduling of ingest → forecast → evaluate (manual for now).
 
-### Phase 4 — Context features (recommended next)
+### Phase 4A — Local Streamlit MVP ✅
+
+Done when:
+- [x] Player exploration, prediction analysis, prospective forecasts and model performance
+      pages over the existing services; data-status page with staleness warnings.
+- [x] Dashboard logic separated (`dashboard/data.py`, `charts.py`) and tested; pages run
+      headlessly under `AppTest`.
+- [x] Quality fixes: `not_scheduled` outcome status, integer-line calibration warning,
+      snapshot statistics (rows vs unique player-game-stat), revision behaviour re-tested.
+
+### Phase 4B — Context features (recommended next)
 
 - Known future back-to-backs and rest from the schedule; opponent pace and defence from
   team box scores; rosters/injuries only with as-of timestamps.
