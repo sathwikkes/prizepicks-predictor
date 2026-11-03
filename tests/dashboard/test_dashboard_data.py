@@ -145,8 +145,8 @@ def test_data_status_reports_box_score_lag(with_forecasts: Session, tmp_path: Pa
 def test_load_backtest_runs_from_committed_docs() -> None:
     runs = data.load_backtest_runs(DOCS_BACKTESTS)
     names = [r.name for r in runs]
-    assert names == ["dev_2023-24", "val_2024-25", "test_2025-26"]
-    test_run = runs[-1]
+    assert names[:3] == ["dev_2023-24", "val_2024-25", "test_2025-26"]  # Phase 3 partitions first
+    test_run = next(r for r in runs if r.role == "held-out test")
     assert test_run.role == "held-out test" and test_run.seasons == "2025-26"
     assert any(r["model"] == "ewma" and r["stat"] == "points" for r in test_run.comparison)
     assert test_run.reliability and test_run.strata and test_run.calibration
@@ -169,10 +169,11 @@ def test_charts_build(loaded: Session) -> None:
     ys = dist.data[0].y
     assert abs(sum(ys) - 1.0) < 1e-3
     runs = data.load_backtest_runs(DOCS_BACKTESTS)
-    rel = [r for r in runs[-1].reliability if r["stat"] == "points" and r["family"] == "auto"]
+    held_out = next(r for r in runs if r.role == "held-out test")
+    rel = [r for r in held_out.reliability if r["stat"] == "points" and r["family"] == "auto"]
     rfig = charts.reliability_chart(rel)
     assert len(rfig.data) >= 2
-    comp = [r for r in runs[-1].comparison if r["stat"] == "points"]
+    comp = [r for r in held_out.comparison if r["stat"] == "points"]
     bfig = charts.metric_bar_chart(comp, metric="mae")
     assert next(iter(bfig.data[0].x)) == "ewma"  # best MAE first
     empty = charts.game_log_chart([], "points")

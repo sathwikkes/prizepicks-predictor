@@ -119,11 +119,15 @@ Done when:
       (`docs/LOCAL_QUICKSTART.md`).
 - [ ] Verified on an actual Mac (cloud-verified only so far).
 
-### Phase 4B — Context features (recommended next)
+### Phase 4B — Schedule context (done; negative result)
 
-- Known future back-to-backs and rest from the schedule; opponent pace and defence from
-  team box scores; rosters/injuries only with as-of timestamps.
-- Re-run the Phase 3 harness unchanged to measure the gain; nothing ships without it.
+- [x] Team rest, back-to-back, three-in-four and venue features in every prediction and
+      backtest observation; `rest` stratum in reports.
+- [x] `ewma_schedule` multiplicative adjustment fitted on 2023-24, compared on 2024-25:
+      no improvement, worse on back-to-backs; `ewma` remains default
+      (`docs/SCHEDULE_CONTEXT_RESULTS.md`).
+- [ ] Next context candidates: opponent pace and defence from team box scores; rosters and
+      injuries only with as-of timestamps. Same protocol: fit on 2023-24, validate on 2024-25.
 
 ### Phase 5 — Backend and dashboard
 

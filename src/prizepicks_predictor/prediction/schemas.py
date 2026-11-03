@@ -8,6 +8,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from prizepicks_predictor.prediction.schedule_context import ScheduleContext
+
 
 class StatType(StrEnum):
     POINTS = "points"
@@ -33,6 +35,7 @@ class WarningCode(StrEnum):
     EMPIRICAL_FALLBACK = "empirical_fallback"
     LONG_LAYOFF = "long_layoff"
     MATCHUP_CONTEXT_UNAVAILABLE = "matchup_context_unavailable"
+    SCHEDULE_CONTEXT_UNAVAILABLE = "schedule_context_unavailable"
     CALIBRATION_UNAVAILABLE = "calibration_unavailable"
     #: calibrators were fitted on half-point lines; at integer lines the conditional map is
     #: applied to P(more | no push) without having been validated for that case
@@ -131,6 +134,9 @@ class FeatureSet(BaseModel):
 
     latest_team: str | None
     teams_in_last10: list[str]
+
+    #: Pregame schedule context (team rest, back-to-back, venue); None when not supplied.
+    schedule: ScheduleContext | None = None
 
     warnings: list[WarningCode]
     unavailable: list[str] = Field(default_factory=lambda: list(UNAVAILABLE_FEATURES))

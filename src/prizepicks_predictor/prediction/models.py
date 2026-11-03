@@ -9,9 +9,33 @@ Adding a model: implement ``ProjectionModel`` and register it in ``MODELS``.
 
 from __future__ import annotations
 
+import json
+from functools import lru_cache
+from pathlib import Path
 from typing import Protocol
 
 from prizepicks_predictor.prediction.schemas import FeatureSet, ModelOutput
+
+SCHEDULE_FACTORS_PATH = Path(__file__).resolve().parents[3] / "artifacts" / "schedule_factors.json"
+NEUTRAL_FACTORS: dict[str, float] = {
+    "back_to_back": 1.0,
+    "three_in_four": 1.0,
+    "long_rest": 1.0,
+    "normal": 1.0,
+    "home": 1.0,
+    "away": 1.0,
+}
+
+
+@lru_cache(maxsize=1)
+def load_schedule_factors(path: Path = SCHEDULE_FACTORS_PATH) -> dict[str, dict[str, float]]:
+    """{stat: {bucket: multiplicative factor}} from the committed artifact; neutral if absent."""
+    if not path.is_file():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        stat: {k: float(v) for k, v in facs.items()} for stat, facs in payload["factors"].items()
+    }
 
 
 class ModelInputError(ValueError):
@@ -141,11 +165,69 @@ class MinutesAdjustedModel:
         )
 
 
+class ScheduleAdjustedEwmaModel:
+    """EWMA projection multiplied by transparent rest and venue factors.
+
+    projection = ewma * rest_factor[rest_bucket] * venue_factor[home|away]
+
+    Factors are per-stat ratios of actual to EWMA projection within each schedule bucket,
+    normalised to the "normal rest" bucket, fitted on the development season and stored in
+    ``artifacts/schedule_factors.json``. Without that file, or without schedule context, the
+    model reduces exactly to EWMA and says so.
+    """
+
+    name = "ewma_schedule"
+    version = "1.0"
+    min_games = 3
+
+    def __init__(self, factors: dict[str, dict[str, float]] | None = None) -> None:
+        self._factors = factors
+
+    def factors_for(self, stat: str) -> dict[str, float]:
+        table = self._factors if self._factors is not None else load_schedule_factors()
+        return {**NEUTRAL_FACTORS, **table.get(stat, {})}
+
+    def project(self, features: FeatureSet) -> ModelOutput:
+        base = _require(features.ewma_mean, "EWMA mean")
+        facs = self.factors_for(features.stat_type.value)
+        ctx = features.schedule
+        assumptions = [
+            f"base = EWMA over {features.games_total} games, half-life "
+            f"{features.ewma_halflife_games:g} games ({base:.2f})",
+        ]
+        rest_factor = venue_factor = 1.0
+        if ctx is None or ctx.rest_days is None:
+            assumptions.append("no schedule context available: no rest adjustment applied")
+        else:
+            rest_factor = facs.get(ctx.rest_bucket, 1.0)
+            assumptions.append(
+                f"rest bucket '{ctx.rest_bucket}' (rest {ctx.rest_days}d, "
+                f"3-in-4={bool(ctx.three_in_four)}): factor {rest_factor:.4f}"
+            )
+        if ctx is None or ctx.is_home is None:
+            assumptions.append("venue unknown: no home/away adjustment applied")
+        else:
+            venue_factor = facs["home" if ctx.is_home else "away"]
+            assumptions.append(
+                f"venue {'home' if ctx.is_home else 'away'}: factor {venue_factor:.4f}"
+            )
+        if self._factors is None and not load_schedule_factors():
+            assumptions.append("schedule_factors.json not found: all factors neutral (1.0)")
+        assumptions.append("factors are multiplicative ratios fitted on the development season")
+        return ModelOutput(
+            name=self.name,
+            version=self.version,
+            projection=base * rest_factor * venue_factor,
+            assumptions=assumptions,
+        )
+
+
 MODELS: dict[str, ProjectionModel] = {
     "season_average": SeasonAverageModel(),
     "rolling_5": RollingAverageModel(5),
     "rolling_10": RollingAverageModel(10),
     "ewma": EwmaModel(),
+    "ewma_schedule": ScheduleAdjustedEwmaModel(),
     "minutes_adjusted": MinutesAdjustedModel(),
 }
 

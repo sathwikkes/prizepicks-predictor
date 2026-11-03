@@ -112,7 +112,8 @@ def test_history_is_chronological_regardless_of_insertion_order(tmp_path: Path) 
 
 
 def test_backtest_prediction_equals_live_predict(tmp_path: Path) -> None:
-    """The engine must reproduce exactly what predict() would have said before each game."""
+    """The engine must reproduce exactly what predict() would have said before each game,
+    given the same pregame inputs (the venue is part of those inputs since Phase 4B)."""
     s = _db(tmp_path, "live", HISTORY)
     cfg = BacktestConfig(
         seasons=[2024], stats=[StatType.POINTS], min_prior_games=3, include_empirical=False
@@ -134,12 +135,15 @@ def test_backtest_prediction_equals_live_predict(tmp_path: Path) -> None:
                     line=obs.lines[2],
                     as_of_date=date.fromisoformat(obs.game_date),
                     model_name=model,
+                    is_home=obs.is_home,
                 ),
             )
-            assert rec.projection == pytest.approx(live.model.projection)
+            assert rec.projection == pytest.approx(live.model.projection), model
             assert rec.family == live.distribution.family.value
             assert rec.p_more[2] == pytest.approx(live.probabilities.more, abs=1e-9)
             assert obs.prior_games == live.sample_size
+            sched = live.features.schedule
+            assert sched is not None and sched.rest_days == obs.rest_days
 
 
 def test_target_and_future_games_do_not_leak(tmp_path: Path) -> None:

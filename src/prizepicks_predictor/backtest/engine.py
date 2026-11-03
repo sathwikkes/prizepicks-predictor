@@ -19,6 +19,7 @@ Eligibility policy (documented here because it defines the cohort):
 
 from __future__ import annotations
 
+import bisect
 import math
 import random
 import time
@@ -31,7 +32,7 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from prizepicks_predictor.backtest.config import BacktestConfig
-from prizepicks_predictor.backtest.history import load_history
+from prizepicks_predictor.backtest.history import load_history, load_team_game_dates
 from prizepicks_predictor.backtest.lines import synthetic_lines
 from prizepicks_predictor.prediction.distributions import (
     MIN_EMPIRICAL_SAMPLE,
@@ -42,6 +43,7 @@ from prizepicks_predictor.prediction.distributions import (
 )
 from prizepicks_predictor.prediction.features import build_features, stat_value
 from prizepicks_predictor.prediction.models import ModelInputError, get_model
+from prizepicks_predictor.prediction.schedule_context import build_schedule_context
 from prizepicks_predictor.prediction.schemas import DistributionFamily, StatType
 from prizepicks_predictor.schemas.game_log import GameLogRow, season_start_year_for
 
@@ -68,6 +70,10 @@ class Observation:
     prior_start_rate: float | None
     trailing_median_line: float
     lines: tuple[float, ...]
+    rest_days: int | None = None
+    back_to_back: bool | None = None
+    three_in_four: bool | None = None
+    rest_bucket: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -157,6 +163,7 @@ def run_backtest(
     started = datetime.now(UTC)
     t0 = time.perf_counter()
     history, names = load_history(session, season_types=config.season_types)
+    team_dates = load_team_game_dates(session, season_types=config.season_types)
     candidates, exclusions = enumerate_candidates(history, config)
     total_candidates = len(candidates)
 
@@ -180,8 +187,14 @@ def run_backtest(
         played_desc = [r for r in prior_desc if r.minutes > 0]
         starts = [r.started for r in played_desc[:10] if r.started is not None]
 
+        all_team_dates = team_dates.get(target.team, [])
+        cut = bisect.bisect_left(all_team_dates, target.game_date)
+        schedule = build_schedule_context(
+            all_team_dates[:cut], target_date=target.game_date, is_home=target.is_home
+        )
         for stat in config.stats:
             features = build_features(prior_desc, stat=stat, as_of_date=target.game_date)
+            features = features.model_copy(update={"schedule": schedule})
             values_desc = [float(stat_value(r, stat)) for r in played_desc]
             recent = values_desc[: config.variance_window]
             actual = stat_value(target, stat)
@@ -210,6 +223,10 @@ def run_backtest(
                     if 0 in config.line_offsets
                     else lines[0],
                     lines=lines,
+                    rest_days=schedule.rest_days,
+                    back_to_back=schedule.back_to_back,
+                    three_in_four=schedule.three_in_four,
+                    rest_bucket=schedule.rest_bucket,
                 )
             )
 
