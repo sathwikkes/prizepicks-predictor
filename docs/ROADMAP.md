@@ -110,6 +110,15 @@ Done when:
 - [x] Quality fixes: `not_scheduled` outcome status, integer-line calibration warning,
       snapshot statistics (rows vs unique player-game-stat), revision behaviour re-tested.
 
+### Phase 4A.1 / 4A.2 — Stabilization and local release readiness ✅
+
+- [x] End-to-end audit on real data, DB-level snapshot immutability, error states
+      (`docs/END_TO_END_QA_REPORT.md`).
+- [x] `make bootstrap / data / refresh / run / check / test / backup / restore`, `ppp check`,
+      SQLite backup/restore, snapshot export/import for cloud-to-Mac migration
+      (`docs/LOCAL_QUICKSTART.md`).
+- [ ] Verified on an actual Mac (cloud-verified only so far).
+
 ### Phase 4B — Context features (recommended next)
 
 - Known future back-to-backs and rest from the schedule; opponent pace and defence from

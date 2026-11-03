@@ -30,12 +30,17 @@ and [docs/DATA_QUALITY_REPORT.md](docs/DATA_QUALITY_REPORT.md).
 
 ## Setup
 
-Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Requirements: [uv](https://docs.astral.sh/uv/) (`brew install uv`); uv installs Python 3.12+ if needed.
 
 ```bash
-uv sync --all-groups
-cp .env.example .env   # optional; defaults work for local development
+make bootstrap          # install, import public NBA data, readiness check, dashboard smoke test
+make run                # Streamlit dashboard
 ```
+
+`make help` lists every target (`setup`, `data`, `refresh`, `check`, `test`, `backup`,
+`restore`, `export-snapshots`, `import-snapshots`). Step-by-step instructions, backups and
+the cloud-to-Mac migration path are in [docs/LOCAL_QUICKSTART.md](docs/LOCAL_QUICKSTART.md).
+Manual equivalent: `uv sync && cp .env.example .env`.
 
 ## Dashboard
 
@@ -170,6 +175,8 @@ src/prizepicks_predictor/
   services/forecast.py, evaluation.py, monitoring.py   # prospective tracking
   dashboard/         # Streamlit pages (presentation only) over the services
 artifacts/calibration/   # versioned calibration artifacts (committed, small)
+artifacts/snapshots/     # exported prospective prediction snapshots (committed, small)
+scripts/bootstrap.sh     # idempotent local setup; Makefile wraps the common commands
   cli.py             # `ppp` command-line entry point
 tests/               # pytest suite
 data/samples/        # committed synthetic fixtures (labeled as such)
