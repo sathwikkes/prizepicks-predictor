@@ -55,6 +55,9 @@ uv run ppp ingest-sdv "${args[@]}"
 step "Loading the $CURRENT_SEASON schedule"
 uv run ppp ingest-schedule --season "$CURRENT_SEASON"
 
+step "Loading team box-score totals (opponent context)"
+uv run ppp ingest-team-stats "${args[@]}"
+
 step "Data quality"
 uv run ppp data-quality
 

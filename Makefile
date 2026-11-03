@@ -28,11 +28,13 @@ setup:
 data:
 	$(UV) run ppp ingest-sdv $(foreach s,$(SEASONS),--season $(s))
 	$(UV) run ppp ingest-schedule --season $(CURRENT_SEASON)
+	$(UV) run ppp ingest-team-stats $(foreach s,$(SEASONS),--season $(s))
 	$(UV) run ppp data-quality
 
 refresh:
 	$(UV) run ppp ingest-sdv --season $(CURRENT_SEASON) --force-download
 	$(UV) run ppp ingest-schedule --season $(CURRENT_SEASON) --force-download
+	$(UV) run ppp ingest-team-stats --season $(CURRENT_SEASON)
 	$(UV) run ppp check
 
 run:
