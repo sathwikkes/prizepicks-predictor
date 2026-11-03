@@ -325,7 +325,7 @@ def forecasts_page() -> None:
         "replay, not a live forecast. **not_scheduled** = the team had no game that day; "
         "**missing_result** = the game is not in the box-score data yet."
     )
-    frame = pd.DataFrame([r.__dict__ for r in rows])
+    frame = pd.DataFrame([r.__dict__ for r in rows]).rename(columns={"cutoff_at": "cutoff_utc"})
     frame["matchup"] = frame.apply(
         lambda x: f"{x.team or '?'} {'vs' if x.is_home else '@'} {x.opponent or '?'}", axis=1
     )
@@ -356,7 +356,11 @@ def forecasts_page() -> None:
             "revision",
         ]
     ]
-    st.dataframe(show.round(3), hide_index=True, width="stretch", height=520)
+    numeric = show.select_dtypes("number").columns
+    show = show.copy()
+    show[numeric] = show[numeric].round(3)
+    st.dataframe(show, hide_index=True, width="stretch", height=520)
+    st.caption("cutoff_utc and tipoff_utc are UTC. Forecast cutoff is the generation time.")
     st.caption(
         "Lines marked synthetic_trailing_median are evaluation thresholds, not market lines."
     )
@@ -378,8 +382,14 @@ def performance_page() -> None:
                 "No backtest runs found under docs/backtests or data/backtests. Run `ppp backtest`."
             )
         else:
-            labels = {f"{r.name} — {r.role} ({r.seasons})": r for r in runs}
-            run = labels[st.selectbox("Run", list(labels), index=len(labels) - 1)]
+            labels = {f"{r.name} - {r.role} ({r.seasons})": r for r in runs}
+            keys = list(labels)
+            default = next(
+                (i for i, k in enumerate(keys) if labels[k].role == "held-out test"), len(keys) - 1
+            )
+            run = labels[st.selectbox("Run", keys, index=default)]
+            if run.role == "other":
+                st.warning("This is a local/smoke run, not one of the reported Phase 3 partitions.")
             meta = run.meta
             st.caption(
                 f"Observations {meta.get('observations')}, candidates {meta.get('candidates')}, "

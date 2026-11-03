@@ -51,9 +51,19 @@ class DataAccessError(PredictionError):
     pass
 
 
+def resolve_calibration_dir(configured: str) -> Path:
+    """A relative ``PPP_CALIBRATION_DIR`` is tried against the cwd, then the repository root."""
+    path = Path(configured)
+    if path.is_absolute() or path.is_dir():
+        return path
+    repo_root = Path(__file__).resolve().parents[3]
+    candidate = repo_root / path
+    return candidate if candidate.is_dir() else path
+
+
 @lru_cache(maxsize=4)
 def _registry_for(directory: str) -> CalibratorRegistry:
-    return CalibratorRegistry.load(Path(directory))
+    return CalibratorRegistry.load(resolve_calibration_dir(directory))
 
 
 def default_calibrators() -> CalibratorRegistry:
