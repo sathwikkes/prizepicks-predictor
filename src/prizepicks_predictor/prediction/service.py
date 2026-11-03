@@ -19,6 +19,11 @@ from prizepicks_predictor.prediction.distributions import (
 )
 from prizepicks_predictor.prediction.features import build_features, stat_value
 from prizepicks_predictor.prediction.models import ModelInputError, get_model
+from prizepicks_predictor.prediction.opponent_context import (
+    OpponentContext,
+    build_opponent_context,
+    league_averages,
+)
 from prizepicks_predictor.prediction.schedule_context import ScheduleContext, build_schedule_context
 from prizepicks_predictor.prediction.schemas import (
     CalibrationInfo,
@@ -28,6 +33,7 @@ from prizepicks_predictor.prediction.schemas import (
 )
 from prizepicks_predictor.services.game_logs import PlayerNotFoundError, resolve_player
 from prizepicks_predictor.services.game_logs import get_player_game_logs as _game_logs
+from prizepicks_predictor.services.team_context import load_team_lines
 from prizepicks_predictor.services.team_schedule import team_game_dates_before
 
 SMALL_SAMPLE_GAMES = 10
@@ -89,6 +95,25 @@ def schedule_context_for(
     )
 
 
+def opponent_context_for(session: Session, request: PredictionRequest) -> OpponentContext | None:
+    """Opponent pace/defence from team box scores before the target; None without an opponent."""
+    if request.opponent is None:
+        return None
+    lines = load_team_lines(session, before=request.as_of_date)
+    all_lines = [ln for rows in lines.values() for ln in rows]
+    league = league_averages(all_lines, request.as_of_date)
+    season = (
+        request.as_of_date.year if request.as_of_date.month >= 10 else request.as_of_date.year - 1
+    )
+    return build_opponent_context(
+        request.opponent.upper(),
+        lines.get(request.opponent.upper(), []),
+        league=league,
+        target_date=request.as_of_date,
+        season_start_year=season,
+    )
+
+
 def predict(
     session: Session,
     request: PredictionRequest,
@@ -119,7 +144,10 @@ def predict(
 
     features = build_features(history, stat=request.stat_type, as_of_date=request.as_of_date)
     features = features.model_copy(
-        update={"schedule": schedule_context_for(session, features.latest_team, request)}
+        update={
+            "schedule": schedule_context_for(session, features.latest_team, request),
+            "opponent": opponent_context_for(session, request),
+        }
     )
     if features.games_total < model.min_games:
         raise InsufficientDataError(

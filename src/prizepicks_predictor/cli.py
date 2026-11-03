@@ -180,6 +180,18 @@ def _build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--run", required=True, help="backtest run directory (development season)")
     sf.add_argument("--out", default="artifacts/schedule_factors.json")
 
+    ts = sub.add_parser(
+        "ingest-team-stats", help="Load team box-score totals from cached team logs"
+    )
+    ts.add_argument("--season", type=int, action="append", required=True, help="END year")
+    ts.add_argument("--cache-dir", default="data/raw/sportsdataverse")
+
+    of = sub.add_parser(
+        "fit-opponent-factors", help="Fit opponent elasticities from a development run"
+    )
+    of.add_argument("--run", required=True)
+    of.add_argument("--out", default="artifacts/opponent_factors.json")
+
     bk = sub.add_parser("backup", help="Write a consistent copy of the SQLite database")
     bk.add_argument(
         "--out", help="destination file (default data/backups/prizepicks-<UTC timestamp>.sqlite)"
@@ -219,6 +231,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pred.add_argument("--line", type=float, required=True, help="Offered line, e.g. 24.5")
     pred.add_argument("--date", required=True, help="Target game date (YYYY-MM-DD)")
     pred.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODELS))
+    pred.add_argument("--opponent", help="opponent tricode, e.g. BOS (enables opponent context)")
     venue = pred.add_mutually_exclusive_group()
     venue.add_argument("--home", dest="is_home", action="store_true", default=None)
     venue.add_argument("--away", dest="is_home", action="store_false")
@@ -271,6 +284,12 @@ def _print_prediction(result: PredictionResult) -> None:
             f"  schedule: rest {sc.rest_days}d, bucket {sc.rest_bucket}, "
             f"venue {'home' if sc.is_home else 'away' if sc.is_home is False else 'unknown'} "
             f"(source {sc.source})"
+        )
+    oc = f.opponent
+    if oc is not None and oc.available:
+        print(
+            f"  opponent {oc.opponent}: pace rel {oc.opp_pace_rel:.3f}, defence rel "
+            f"{oc.opp_def_rel:.3f} ({oc.games_used} games, shrunk)"
         )
     print(f"  calibration: {result.calibration_summary} ({result.calibration_status})")
     if result.calibration is not None and result.calibration.support_message:
@@ -642,6 +661,38 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
 
+        if args.command == "ingest-team-stats":
+            from prizepicks_predictor.ingestion.team_stats import load_team_stats
+
+            for season in args.season:
+                try:
+                    tsr = load_team_stats(session, season, cache_dir=args.cache_dir)
+                except ProviderError as exc:
+                    print(f"error: {exc}", file=sys.stderr)
+                    return 2
+                print(
+                    f"team stats {season}: rows={tsr.rows} inserted={tsr.inserted} "
+                    f"updated={tsr.updated} unchanged={tsr.unchanged} "
+                    f"skipped_no_game={tsr.skipped_no_game} bad={tsr.skipped_bad}"
+                )
+            return 0
+
+        if args.command == "fit-opponent-factors":
+            from prizepicks_predictor.backtest.opponent_factors import (
+                fit_opponent_factors,
+                write_opponent_factors,
+            )
+
+            payload = fit_opponent_factors(Path(args.run))
+            path = write_opponent_factors(payload, Path(args.out))
+            print(
+                json.dumps(
+                    {"factors": payload["factors"], "diagnostics": payload["diagnostics"]}, indent=2
+                )
+            )
+            print(f"written {path}")
+            return 0
+
         if args.command == "fit-schedule-factors":
             from prizepicks_predictor.backtest.schedule_factors import (
                 fit_schedule_factors,
@@ -746,6 +797,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     model_name=args.model,
                     distribution=DistributionFamily(args.distribution),
                     is_home=args.is_home,
+                    opponent=args.opponent,
                 )
             except (ValidationError, ValueError) as exc:
                 print(f"error: invalid request: {exc}", file=sys.stderr)

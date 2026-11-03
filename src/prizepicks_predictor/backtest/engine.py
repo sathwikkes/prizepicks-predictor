@@ -26,7 +26,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import numpy as np
 from sqlalchemy.orm import Session
@@ -43,9 +43,15 @@ from prizepicks_predictor.prediction.distributions import (
 )
 from prizepicks_predictor.prediction.features import build_features, stat_value
 from prizepicks_predictor.prediction.models import ModelInputError, get_model
+from prizepicks_predictor.prediction.opponent_context import (
+    TeamGameLine,
+    build_opponent_context,
+    league_averages,
+)
 from prizepicks_predictor.prediction.schedule_context import build_schedule_context
 from prizepicks_predictor.prediction.schemas import DistributionFamily, StatType
 from prizepicks_predictor.schemas.game_log import GameLogRow, season_start_year_for
+from prizepicks_predictor.services.team_context import load_team_lines
 
 EMPIRICAL_MODEL_NAME = "empirical_history"
 NLL_CAP = 30.0
@@ -74,6 +80,9 @@ class Observation:
     back_to_back: bool | None = None
     three_in_four: bool | None = None
     rest_bucket: str = "unknown"
+    opp_pace_rel: float | None = None
+    opp_def_rel: float | None = None
+    opp_games: int | None = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +173,11 @@ def run_backtest(
     t0 = time.perf_counter()
     history, names = load_history(session, season_types=config.season_types)
     team_dates = load_team_game_dates(session, season_types=config.season_types)
+    team_lines = load_team_lines(session, season_types=config.season_types)
+    all_lines: list[TeamGameLine] = sorted(
+        (ln for rows in team_lines.values() for ln in rows), key=lambda ln: ln.game_date
+    )
+    league_cache: dict[date, tuple[float | None, float | None]] = {}
     candidates, exclusions = enumerate_candidates(history, config)
     total_candidates = len(candidates)
 
@@ -192,9 +206,20 @@ def run_backtest(
         schedule = build_schedule_context(
             all_team_dates[:cut], target_date=target.game_date, is_home=target.is_home
         )
+        if target.game_date not in league_cache:
+            league_cache[target.game_date] = league_averages(all_lines, target.game_date)
+        opp_lines = team_lines.get(target.opponent, [])
+        opp_cut = bisect.bisect_left([ln.game_date for ln in opp_lines], target.game_date)
+        opponent = build_opponent_context(
+            target.opponent,
+            opp_lines[:opp_cut],
+            league=league_cache[target.game_date],
+            target_date=target.game_date,
+            season_start_year=season_start_year_for(target.game_date),
+        )
         for stat in config.stats:
             features = build_features(prior_desc, stat=stat, as_of_date=target.game_date)
-            features = features.model_copy(update={"schedule": schedule})
+            features = features.model_copy(update={"schedule": schedule, "opponent": opponent})
             values_desc = [float(stat_value(r, stat)) for r in played_desc]
             recent = values_desc[: config.variance_window]
             actual = stat_value(target, stat)
@@ -227,6 +252,9 @@ def run_backtest(
                     back_to_back=schedule.back_to_back,
                     three_in_four=schedule.three_in_four,
                     rest_bucket=schedule.rest_bucket,
+                    opp_pace_rel=opponent.opp_pace_rel if opponent.available else None,
+                    opp_def_rel=opponent.opp_def_rel if opponent.available else None,
+                    opp_games=opponent.games_used if opponent.available else None,
                 )
             )
 

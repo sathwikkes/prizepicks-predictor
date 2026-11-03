@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from prizepicks_predictor.prediction.opponent_context import OpponentContext
 from prizepicks_predictor.prediction.schedule_context import ScheduleContext
 
 
@@ -143,6 +144,8 @@ class FeatureSet(BaseModel):
 
     #: Pregame schedule context (team rest, back-to-back, venue); None when not supplied.
     schedule: ScheduleContext | None = None
+    #: Opponent pace/defence context from team box scores before the target; None if unknown.
+    opponent: OpponentContext | None = None
 
     warnings: list[WarningCode]
     unavailable: list[str] = Field(default_factory=lambda: list(UNAVAILABLE_FEATURES))
