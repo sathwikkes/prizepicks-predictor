@@ -18,9 +18,11 @@ purpose.
 
 ## NBA Terms of Use
 
-The terms page could not be retrieved from this cloud environment (the outbound proxy
-refused the connection), so the points below are from general familiarity with NBA.com's
-published terms and **must be re-read against the current text** before any deployment:
+The repository owner has read the current terms (https://www.nba.com/termsofuse) and
+confirmed that they restrict the use of NBA.com statistics in connection with gambling and
+certain commercial and fantasy products. The cloud environment used for development
+cannot fetch the page, so the clause-level summary below is the owner's reading plus
+general familiarity, and should be re-checked before any deployment decision:
 
 * NBA.com content, which in the terms' definitions includes statistics, is made available
   for personal, non-commercial use.
@@ -49,7 +51,12 @@ different risk:
    unofficial feeds in a gambling product is the exact use those licences exist to govern,
    and operators in regulated markets are frequently required to use official data.
 
-Treat **stage 2 and 3 as blocked** until one of the options below is resolved.
+Treat **stage 2 and 3 as blocked** until one of the options below is resolved. Project
+posture as of Phase 3.5: a general-purpose, non-commercial basketball forecasting and
+software-research project operating under the source terms. No gambling-specific feature
+is built, deployed or distributed on the restricted NBA.com-derived data. The provider
+layer is modular so an appropriately licensed feed can replace it without touching the
+engine.
 
 ## Options to investigate before deployment
 
@@ -66,6 +73,15 @@ Treat **stage 2 and 3 as blocked** until one of the options below is resolved.
 * Raw downloaded files are cached locally and not committed.
 * Synthetic fixtures are labelled and kept out of real-data databases.
 * No credentials, scraping or access-control circumvention are used anywhere.
+
+## Requirement for any future PrizePicks-specific integration
+
+Before any feature that evaluates or recommends PrizePicks selections is built on real
+data, the statistics feeding it must come from a source whose terms permit that use.
+Candidates to evaluate, in rough order of fit: Sportradar and Genius Sports (official NBA
+data partners with betting rights), Stats Perform / Opta, SportsDataIO (check the
+gambling clause of the specific plan), and a direct NBA licence. The CSV and adapter
+interfaces mean such a feed is a new `GameLogProvider`, not a rewrite.
 
 ## Action items
 

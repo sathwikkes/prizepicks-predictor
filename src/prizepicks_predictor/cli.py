@@ -25,6 +25,7 @@ from prizepicks_predictor.backtest.config import BacktestConfig, parse_season
 from prizepicks_predictor.config import get_settings
 from prizepicks_predictor.db import IngestionRun, create_db_engine, get_session_factory, init_db
 from prizepicks_predictor.ingestion import CsvGameLogProvider, ProviderError, load_game_logs
+from prizepicks_predictor.ingestion.schedules import EspnScheduleProvider, load_schedule
 from prizepicks_predictor.ingestion.sportsdataverse import SportsDataverseProvider
 from prizepicks_predictor.prediction import (
     DistributionFamily,
@@ -37,6 +38,9 @@ from prizepicks_predictor.prediction import (
 from prizepicks_predictor.prediction.models import DEFAULT_MODEL, MODELS
 from prizepicks_predictor.services import PlayerNotFoundError, find_players, get_player_game_logs
 from prizepicks_predictor.services.data_quality import build_report, render_report
+from prizepicks_predictor.services.evaluation import evaluate_predictions
+from prizepicks_predictor.services.forecast import read_targets_file, run_forecast
+from prizepicks_predictor.services.monitoring import build_monitor, render_monitor
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -112,6 +116,58 @@ def _build_parser() -> argparse.ArgumentParser:
     cal.add_argument("--family", default=DistributionFamily.AUTO.value)
     cal.add_argument("--no-charts", action="store_true")
 
+    fit = sub.add_parser(
+        "fit-calibrators", help="Fit versioned calibration artifacts from backtest runs"
+    )
+    fit.add_argument("--fit-run", action="append", required=True, help="run directory; repeatable")
+    fit.add_argument("--eval-run", help="held-out run directory for validation metrics")
+    fit.add_argument("--out", default="artifacts/calibration")
+    fit.add_argument("--models", default="ewma", help="comma list of model names")
+    fit.add_argument("--family", default=DistributionFamily.AUTO.value)
+    fit.add_argument("--method", default="isotonic", choices=["isotonic", "platt"])
+
+    sched = sub.add_parser(
+        "ingest-schedule", help="Load the ESPN season schedule (SportsDataverse)"
+    )
+    sched.add_argument(
+        "--season", type=int, action="append", required=True, help="END year, e.g. 2027"
+    )
+    sched.add_argument("--cache-dir", default="data/raw/sportsdataverse")
+    sched.add_argument("--force-download", action="store_true")
+
+    fc = sub.add_parser(
+        "forecast", help="Generate pregame forecasts for a date (immutable snapshots)"
+    )
+    fc.add_argument("--date", required=True, help="target game date YYYY-MM-DD (US game date)")
+    fc.add_argument(
+        "--stat", action="append", help="points|rebounds|assists|all; repeatable; default all"
+    )
+    fc.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODELS))
+    fc.add_argument(
+        "--distribution",
+        default=DistributionFamily.AUTO.value,
+        choices=[d.value for d in DistributionFamily],
+    )
+    fc.add_argument(
+        "--targets-file", help="CSV player_id,stat[,line] instead of schedule-derived participants"
+    )
+    fc.add_argument("--save", action="store_true", help="persist snapshots (otherwise dry run)")
+    fc.add_argument(
+        "--revise",
+        action="store_true",
+        help="save a new revision when an identical forecast exists",
+    )
+    fc.add_argument("--lookback-days", type=int, default=21)
+
+    ev = sub.add_parser(
+        "evaluate-predictions", help="Score saved snapshots against completed games"
+    )
+    ev.add_argument("--through", required=True, help="evaluate targets on or before YYYY-MM-DD")
+
+    mon = sub.add_parser("monitor", help="Prospective performance report")
+    mon.add_argument("--since")
+    mon.add_argument("--through")
+
     pred = sub.add_parser("predict", help="Predict More/Less probabilities for a prop line")
     pred.add_argument("--player-id", type=int, required=True, help="Internal player id")
     pred.add_argument("--stat", required=True, choices=[s.value for s in StatType])
@@ -142,7 +198,15 @@ def _print_prediction(result: PredictionResult) -> None:
     )
     lo, hi = result.interval_80
     print(f"  80% interval: {lo:.0f} - {hi:.0f}")
-    print(f"  P(more) = {p.more:.3f}   P(less) = {p.less:.3f}   P(push) = {p.push:.3f}")
+    print(f"  P(more) = {p.more:.3f}   P(less) = {p.less:.3f}   P(push) = {p.push:.3f}   [raw]")
+    c = result.probabilities_calibrated
+    if c is not None and result.calibration is not None:
+        print(
+            f"  P(more) = {c.more:.3f}   P(less) = {c.less:.3f}   P(push) = {c.push:.3f}   "
+            f"[calibrated: {result.calibration.method}, fit {result.calibration.fit_seasons}, "
+            f"{result.calibration.validation_status}]"
+        )
+        print(f"  calibration artifact: {result.calibration.artifact_id}")
     print(
         f"  sample: {result.sample_size} games with minutes before cutoff "
         f"(season {f.season_start_year}: {f.season_games} games; dnp excluded: {f.dnp_games})"
@@ -164,6 +228,103 @@ def _print_prediction(result: PredictionResult) -> None:
 
 def _fmt(value: float | None, digits: int = 2) -> str:
     return "n/a" if value is None else f"{value:.{digits}f}"
+
+
+def _fit_calibrators(args: argparse.Namespace) -> int:
+    from prizepicks_predictor.backtest.fit_calibration import CalibrationFitError, fit_artifact
+
+    out = Path(args.out)
+    written = 0
+    for model_name in [m.strip() for m in args.models.split(",")]:
+        for stat in StatType:
+            try:
+                artifact = fit_artifact(
+                    fit_runs=[Path(r) for r in args.fit_run],
+                    stat=stat,
+                    model_name=model_name,
+                    family=DistributionFamily(args.family),
+                    method=args.method,
+                    eval_run=Path(args.eval_run) if args.eval_run else None,
+                )
+            except (CalibrationFitError, FileNotFoundError, KeyError) as exc:
+                print(f"skip {stat.value}/{model_name}: {exc}", file=sys.stderr)
+                continue
+            path = artifact.save(out)
+            written += 1
+            held = artifact.held_out
+            extra = (
+                f" held-out ECE {held.ece_uncalibrated:.4f} -> {held.ece_calibrated:.4f} "
+                f"(n={held.n_eval})"
+                if held
+                else " (in-sample only)"
+            )
+            print(f"wrote {path}  {artifact.artifact_id}  n_fit={artifact.n_fit}{extra}")
+    print(f"{written} artifacts in {out}")
+    return 0 if written else 2
+
+
+def _forecast(session: Session, args: argparse.Namespace) -> int:
+    stats = (
+        list(StatType) if not args.stat or "all" in args.stat else [StatType(s) for s in args.stat]
+    )
+    targets = read_targets_file(Path(args.targets_file)) if args.targets_file else None
+    summary = run_forecast(
+        session,
+        target_date=date.fromisoformat(args.date),
+        stats=stats,
+        model_name=args.model,
+        distribution=DistributionFamily(args.distribution),
+        manual_targets=targets,
+        save=args.save,
+        revise=args.revise,
+        lookback_days=args.lookback_days,
+    )
+    print(
+        f"forecast {summary.target_date} batch={summary.batch_id} "
+        f"cutoff={summary.cutoff_at:%Y-%m-%dT%H:%M:%SZ} "
+        f"scheduled_games={summary.scheduled_games} forecastable={summary.forecastable_games} "
+        f"participants={summary.participants} rows={len(summary.rows)} saved={summary.saved} "
+        f"duplicates={summary.duplicates} {'(dry run)' if not args.save else ''}"
+    )
+    if summary.skipped:
+        print(f"  skipped: {dict(summary.skipped)}")
+    for note in summary.notes:
+        print(f"  note: {note}")
+    _print_table(
+        [
+            "player",
+            "team",
+            "opp",
+            "stat",
+            "line",
+            "src",
+            "proj",
+            "P(more) raw",
+            "cal",
+            "n",
+            "saved",
+        ],
+        [
+            (
+                r.player_name,
+                r.team or "?",
+                r.opponent or "?",
+                r.stat,
+                f"{r.line:g}",
+                "syn" if r.line_source == "synthetic_trailing_median" else "man",
+                f"{r.projection:.2f}",
+                f"{r.p_more:.3f}",
+                "n/a" if r.p_more_cal is None else f"{r.p_more_cal:.3f}",
+                r.sample_size,
+                "dup" if r.duplicate else ("yes" if r.saved else "no"),
+            )
+            for r in summary.rows[:60]
+        ],
+    )
+    if len(summary.rows) > 60:
+        print(f"  ... {len(summary.rows) - 60} more rows")
+    print("  lines marked 'syn' are synthetic trailing-median thresholds, not market lines")
+    return 0
 
 
 def _run_backtest(session: Session, args: argparse.Namespace, database_url: str) -> int:
@@ -271,6 +432,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         init_db(engine)
         print(f"Database initialized at {engine.url}")
         return 0
+    init_db(engine)  # idempotent: creates tables added since the database was first built
 
     with session_factory() as session:
         if args.command == "ingest-csv":
@@ -361,6 +523,51 @@ def main(argv: Sequence[str] | None = None) -> int:
                     for r in rows
                 ],
             )
+            return 0
+
+        if args.command == "fit-calibrators":
+            return _fit_calibrators(args)
+
+        if args.command == "ingest-schedule":
+            for season in args.season:
+                sched_provider = EspnScheduleProvider(
+                    season, cache_dir=args.cache_dir, force_download=args.force_download
+                )
+                try:
+                    loaded = load_schedule(session, sched_provider)
+                except ProviderError as exc:
+                    print(f"error: season {season}: {exc}", file=sys.stderr)
+                    return 2
+                finally:
+                    sched_provider.close()
+                sst = sched_provider.stats
+                print(
+                    f"schedule {season} ({season - 1}-{season % 100:02d}): rows={sst.rows} "
+                    f"loaded={sst.yielded} inserted={loaded.inserted} updated={loaded.updated} "
+                    f"unchanged={loaded.unchanged} skipped_tbd={sst.skipped_tbd} "
+                    f"statuses={sst.statuses}"
+                )
+            return 0
+
+        if args.command == "forecast":
+            return _forecast(session, args)
+
+        if args.command == "evaluate-predictions":
+            summary = evaluate_predictions(session, through=date.fromisoformat(args.through))
+            print(
+                f"evaluated through {summary.through}: considered={summary.considered} "
+                f"statuses={dict(summary.statuses)} pending_future={summary.pending_future} "
+                f"reevaluated={summary.reevaluated}"
+            )
+            return 0
+
+        if args.command == "monitor":
+            monitor = build_monitor(
+                session,
+                since=date.fromisoformat(args.since) if args.since else None,
+                through=date.fromisoformat(args.through) if args.through else None,
+            )
+            print(render_monitor(monitor))
             return 0
 
         if args.command == "backtest":

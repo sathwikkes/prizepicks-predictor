@@ -8,16 +8,21 @@ expected-value analysis for PrizePicks More/Less projections.
 
 ## Status
 
-**Phases 1, 2, 2.5 and 3 are implemented.** The repository has a SQLite schema, a
+**Phases 1, 2, 2.5, 3 and 3.5 are implemented.** The repository has a SQLite schema, a
 provider-agnostic ingestion framework, four interpretable baseline models, count-aware
 predictive distributions, a CLI that turns a player, stat, line and game date into
 More/Less/Push probabilities, and a free real-data pipeline that loads NBA.com box scores
 for 2023-24 through the current season from SportsDataverse's public GitHub releases.
 
 Phase 3 adds a walk-forward backtesting framework and real-data evaluation of every
-baseline across three seasons. Results and their limits are in
-[docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md). Probabilities are measured against
-**synthetic** evaluation lines, not PrizePicks lines, so nothing here is a wagering claim.
+baseline across three seasons ([docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md)).
+Phase 3.5 wires the validated isotonic calibration into `predict()`
+([docs/CALIBRATION.md](docs/CALIBRATION.md)) and adds immutable prospective prediction
+tracking with schedule-driven forecasts, post-game evaluation and monitoring
+([docs/PROSPECTIVE_TRACKING.md](docs/PROSPECTIVE_TRACKING.md)). Probabilities are
+calibrated against **synthetic** evaluation lines, not PrizePicks lines, so nothing here is
+a wagering claim. This is a non-commercial research project; see
+[docs/LICENSING_RISK.md](docs/LICENSING_RISK.md) before any other use.
 See also [docs/ROADMAP.md](docs/ROADMAP.md), [docs/PREDICTION_METHODOLOGY.md](docs/PREDICTION_METHODOLOGY.md),
 [docs/BACKTESTING_PLAN.md](docs/BACKTESTING_PLAN.md), [docs/LEAKAGE_AUDIT.md](docs/LEAKAGE_AUDIT.md),
 [docs/LICENSING_RISK.md](docs/LICENSING_RISK.md), [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)
@@ -55,6 +60,22 @@ uv run ppp predict --player-id <id> --stat points --line 27.5 --date 2025-03-01
 `unchanged=…`. Add `--season-types regular,playoffs` for playoff games or `--include-dnp`
 to store did-not-play rows as 0-minute games.
 
+## Prospective forecasting
+
+```bash
+uv run ppp ingest-sdv --season 2027 --force-download   # latest box scores
+uv run ppp ingest-schedule --season 2027               # ESPN schedule with UTC tip-offs
+uv run ppp forecast --date 2026-11-04 --stat all       # dry run
+uv run ppp forecast --date 2026-11-04 --stat all --save
+uv run ppp evaluate-predictions --through 2026-11-04   # after the games are ingested
+uv run ppp monitor
+```
+
+Forecasts are refused for games that have tipped off, saved once per
+(player, date, stat, model, line) unless `--revise`, and never modified afterwards.
+`--targets-file player_id,stat[,line]` forecasts explicit players instead of
+schedule-derived participants.
+
 ## Backtesting
 
 ```bash
@@ -69,6 +90,9 @@ uv run ppp backtest --season 2025-26 --run-name test_2025-26
 # fit Platt and isotonic calibrators on the validation run, evaluate on the held-out run
 uv run ppp calibrate --fit-run data/backtests/val_2024-25 --eval-run data/backtests/test_2025-26 \
     --stat points --model ewma --family auto
+
+# write versioned calibration artifacts that predict() applies (see docs/CALIBRATION.md)
+uv run ppp fit-calibrators --fit-run data/backtests/val_2024-25 --eval-run data/backtests/test_2025-26
 ```
 
 Each run directory (gitignored, under `data/backtests/`) holds `run.json` (config and
@@ -133,7 +157,9 @@ src/prizepicks_predictor/
   ingestion/         # provider adapters (csv, sportsdataverse, balldontlie) + idempotent loader
   services/          # query layer used by the CLI and, later, the API
   prediction/        # features -> baseline models -> distributions -> predict()
-  backtest/          # walk-forward engine, metrics, calibration, reports
+  backtest/          # walk-forward engine, metrics, calibration fitting, reports
+  services/forecast.py, evaluation.py, monitoring.py   # prospective tracking
+artifacts/calibration/   # versioned calibration artifacts (committed, small)
   cli.py             # `ppp` command-line entry point
 tests/               # pytest suite
 data/samples/        # committed synthetic fixtures (labeled as such)
@@ -149,6 +175,7 @@ docs/                # roadmap, architecture notes, data-source evaluation
 | --- | --- | --- |
 | `PPP_DATABASE_URL` | `sqlite:///data/prizepicks.db` | SQLAlchemy database URL |
 | `PPP_BALLDONTLIE_API_KEY` | unset | Enables the live BALLDONTLIE adapter |
+| `PPP_CALIBRATION_DIR` | `artifacts/calibration` | Calibration artifacts applied by `predict()` |
 | `PPP_LOG_LEVEL` | `INFO` | CLI log verbosity |
 
 Never commit `.env` or any API key.

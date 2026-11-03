@@ -28,7 +28,7 @@ from prizepicks_predictor.backtest.report import read_run
 Array = NDArray[np.float64]
 
 
-def _pairs(run_dir: Path, *, stat: str, model: str, family: str) -> tuple[Array, Array]:
+def load_pairs(run_dir: Path, *, stat: str, model: str, family: str) -> tuple[Array, Array]:
     """All (P(more), outcome) pairs for one configuration in a run, pooled over lines."""
     meta, observations, predictions = read_run(run_dir)
     offsets = [int(x) for x in meta["config"]["line_offsets"]]
@@ -73,8 +73,8 @@ class CalibrationReport:
 def calibrate(
     fit_run: Path, eval_run: Path, *, stat: str, model: str, family: str
 ) -> CalibrationReport:
-    p_fit, y_fit = _pairs(fit_run, stat=stat, model=model, family=family)
-    p_eval, y_eval = _pairs(eval_run, stat=stat, model=model, family=family)
+    p_fit, y_fit = load_pairs(fit_run, stat=stat, model=model, family=family)
+    p_eval, y_eval = load_pairs(eval_run, stat=stat, model=model, family=family)
     if fit_run.resolve() == eval_run.resolve():
         raise ValueError("fit and evaluation runs must differ (no in-sample calibration)")
     rows = [
