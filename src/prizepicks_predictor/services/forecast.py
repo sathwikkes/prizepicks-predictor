@@ -345,6 +345,9 @@ def run_forecast(
         else:
             summary.skipped["player:no_history"] += 1
             continue
+        venue: bool | None = None
+        if participant.scheduled_game is not None:
+            venue = participant.scheduled_game.home_team.abbreviation == participant.team
         try:
             request = PredictionRequest(
                 player_id=participant.player_id,
@@ -353,6 +356,7 @@ def run_forecast(
                 as_of_date=target_date,
                 model_name=model_name,
                 distribution=distribution,
+                is_home=venue,
             )
             result = predict(session, request, calibrators=calibrators)
         except InsufficientDataError:

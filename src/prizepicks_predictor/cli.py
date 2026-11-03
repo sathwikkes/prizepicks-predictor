@@ -10,6 +10,7 @@ ppp runs
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from collections.abc import Sequence
@@ -200,6 +201,9 @@ def _build_parser() -> argparse.ArgumentParser:
     pred.add_argument("--line", type=float, required=True, help="Offered line, e.g. 24.5")
     pred.add_argument("--date", required=True, help="Target game date (YYYY-MM-DD)")
     pred.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODELS))
+    venue = pred.add_mutually_exclusive_group()
+    venue.add_argument("--home", dest="is_home", action="store_true", default=None)
+    venue.add_argument("--away", dest="is_home", action="store_false")
     pred.add_argument(
         "--distribution",
         default=DistributionFamily.AUTO.value,
@@ -243,6 +247,13 @@ def _print_prediction(result: PredictionResult) -> None:
         f"ewma {_fmt(f.ewma_mean)}, per-min(recent) {_fmt(f.per_minute_recent, 3)}, "
         f"min(recent) {_fmt(f.minutes_recent_mean, 1)}, rest {f.rest_days}d"
     )
+    sc = f.schedule
+    if sc is not None and sc.rest_days is not None:
+        print(
+            f"  schedule: rest {sc.rest_days}d, bucket {sc.rest_bucket}, "
+            f"venue {'home' if sc.is_home else 'away' if sc.is_home is False else 'unknown'} "
+            f"(source {sc.source})"
+        )
     print(f"  calibration: {result.calibration_status}")
     if result.warnings:
         print("  warnings: " + ", ".join(w.value for w in result.warnings))
@@ -611,6 +622,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
 
+        if args.command == "fit-schedule-factors":
+            from prizepicks_predictor.backtest.schedule_factors import (
+                fit_schedule_factors,
+                write_schedule_factors,
+            )
+
+            payload = fit_schedule_factors(Path(args.run))
+            path = write_schedule_factors(payload, Path(args.out))
+            print(json.dumps(payload["factors"], indent=2))
+            print(f"written {path}")
+            return 0
+
         if args.command == "check":
             from prizepicks_predictor.prediction.service import resolve_calibration_dir
             from prizepicks_predictor.services.readiness import render_checks, run_checks
@@ -691,6 +714,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     as_of_date=date.fromisoformat(args.date),
                     model_name=args.model,
                     distribution=DistributionFamily(args.distribution),
+                    is_home=args.is_home,
                 )
             except (ValidationError, ValueError) as exc:
                 print(f"error: invalid request: {exc}", file=sys.stderr)

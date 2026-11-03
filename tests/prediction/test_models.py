@@ -64,7 +64,14 @@ def test_minutes_adjusted_responds_to_minutes_change(as_of: date) -> None:
 
 
 def test_registry_and_default() -> None:
-    assert set(MODELS) == {"season_average", "rolling_5", "rolling_10", "ewma", "minutes_adjusted"}
+    assert set(MODELS) == {
+        "season_average",
+        "rolling_5",
+        "rolling_10",
+        "ewma",
+        "ewma_schedule",
+        "minutes_adjusted",
+    }
     assert DEFAULT_MODEL in MODELS
     assert get_model("rolling_5").name == "rolling_5"
     with pytest.raises(KeyError, match="unknown model"):

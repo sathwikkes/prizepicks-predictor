@@ -66,3 +66,22 @@ def load_history(
             )
         )
     return history, names
+
+
+def load_team_game_dates(
+    session: Session, *, season_types: Sequence[str] = ("regular",)
+) -> dict[str, list[date]]:
+    """``{team_abbreviation: sorted game dates}`` for every stored game (both teams)."""
+    home = aliased(Team)
+    away = aliased(Team)
+    stmt = (
+        select(Game.game_date, home.abbreviation, away.abbreviation)
+        .join(home, Game.home_team_id == home.id)
+        .join(away, Game.away_team_id == away.id)
+        .where(Game.season_type.in_(list(season_types)))
+    )
+    out: dict[str, set[date]] = {}
+    for d, h, a in session.execute(stmt):
+        out.setdefault(h, set()).add(d)
+        out.setdefault(a, set()).add(d)
+    return {team: sorted(dates) for team, dates in out.items()}

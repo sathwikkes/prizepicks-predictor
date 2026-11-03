@@ -18,6 +18,7 @@ from prizepicks_predictor.prediction.distributions import (
 )
 from prizepicks_predictor.prediction.features import build_features, stat_value
 from prizepicks_predictor.prediction.models import ModelInputError, get_model
+from prizepicks_predictor.prediction.schedule_context import ScheduleContext, build_schedule_context
 from prizepicks_predictor.prediction.schemas import (
     CalibrationInfo,
     PredictionRequest,
@@ -26,6 +27,7 @@ from prizepicks_predictor.prediction.schemas import (
 )
 from prizepicks_predictor.services.game_logs import PlayerNotFoundError, resolve_player
 from prizepicks_predictor.services.game_logs import get_player_game_logs as _game_logs
+from prizepicks_predictor.services.team_schedule import team_game_dates_before
 
 SMALL_SAMPLE_GAMES = 10
 #: Games used to estimate outcome variance. Long enough to be stable, short
@@ -71,6 +73,18 @@ def default_calibrators() -> CalibratorRegistry:
     return _registry_for(get_settings().calibration_dir)
 
 
+def schedule_context_for(
+    session: Session, team: str | None, request: PredictionRequest
+) -> ScheduleContext | None:
+    """Team rest/venue context from completed games and the loaded schedule, all pre-target."""
+    if team is None:
+        return None
+    dates, source = team_game_dates_before(session, team, request.as_of_date)
+    return build_schedule_context(
+        dates, target_date=request.as_of_date, is_home=request.is_home, source=source
+    )
+
+
 def predict(
     session: Session,
     request: PredictionRequest,
@@ -100,6 +114,9 @@ def predict(
         raise DataAccessError(f"database error while loading history: {exc}") from exc
 
     features = build_features(history, stat=request.stat_type, as_of_date=request.as_of_date)
+    features = features.model_copy(
+        update={"schedule": schedule_context_for(session, features.latest_team, request)}
+    )
     if features.games_total < model.min_games:
         raise InsufficientDataError(
             f"{player.full_name} has {features.games_total} games with minutes before "
@@ -124,6 +141,8 @@ def predict(
     probabilities = outcome_probabilities(predictive, request.line)
 
     warnings = list(features.warnings)
+    if features.schedule is None or features.schedule.rest_days is None:
+        warnings.append(WarningCode.SCHEDULE_CONTEXT_UNAVAILABLE)
     if features.games_total < SMALL_SAMPLE_GAMES:
         warnings.insert(0, WarningCode.SMALL_SAMPLE)
     if any("fell back" in note for note in predictive.notes):

@@ -136,6 +136,7 @@ class Cohort:
     prior_games: Array
     minutes_recent: Array
     start_rate: Array
+    rest_bucket: list[str]
 
 
 @dataclass
@@ -216,6 +217,7 @@ def build_cohorts(
                 prior_games=np.array([float(o["prior_games"]) for o in obs]),
                 minutes_recent=np.array([float(o["minutes_recent"] or "nan") for o in obs]),
                 start_rate=np.array([float(o["prior_start_rate"] or "nan") for o in obs]),
+                rest_bucket=[o.get("rest_bucket", "unknown") for o in obs],
             )
     return cohorts, common_sizes, dropped
 
@@ -258,6 +260,11 @@ def strata_rows(c: Cohort) -> list[tuple[str, str, ConfigRow]]:
             mask = (values >= lo) & (values < hi)
             if mask.any():
                 out.append((stratum, label, config_row(c, mask)))
+    buckets_rest = np.array(c.rest_bucket)
+    for label in ("back_to_back", "three_in_four", "normal", "long_rest"):
+        mask = buckets_rest == label
+        if mask.any():
+            out.append(("rest", label, config_row(c, mask)))
     return out
 
 
