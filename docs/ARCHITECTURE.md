@@ -5,6 +5,8 @@
 ```
 CLI / (future) FastAPI
         │
+   backtest/           walk-forward engine, metrics, calibration, reports (reads prediction/)
+        │
    prediction/         features -> models -> distributions -> predict()
         │
    services/           business logic; returns Pydantic read models
@@ -24,6 +26,16 @@ CLI / (future) FastAPI
 | `prediction/distributions.py` | Poisson / NegBin / Normal / Empirical, More/Less/Push | schemas, scipy |
 | `prediction/service.py` | orchestration, error mapping, warnings | all of the above, services |
 | `services/data_quality.py` | coverage, integrity and provenance report | db |
+| `backtest/engine.py` | walk-forward loop over eligible player-games; shares one feature set per observation across models | prediction, history |
+| `backtest/lines.py` | synthetic pregame-only, model-independent half-point lines | nothing |
+| `backtest/metrics.py`, `calibration.py` | pure numpy metrics, bootstrap CIs, Platt and isotonic calibrators | numpy, scipy |
+| `backtest/report.py`, `calibrate.py` | persistence (`run.json`, gzip CSV), equal-cohort analysis, charts | matplotlib |
+
+**The backtest reuses the engine's pure functions, not a copy.** `build_features`,
+`model.project`, `predictive_variance`, `resolve_family` and the family parameterisation
+are the same code the live `predict()` calls; `pmf_array` is a vectorised evaluation of
+the same distribution and is tested equal to `Predictive.pmf`. A test asserts a backtest
+record equals a live prediction made with the same cutoff.
 
 Adding a model means implementing `project(FeatureSet) -> ModelOutput` and registering it;
 nothing else changes. The same holds for a new distribution family.

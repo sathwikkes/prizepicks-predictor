@@ -1,0 +1,69 @@
+{
+  "run_started_at": "2026-11-02T18:52:03.455349+00:00",
+  "elapsed_seconds": 147.16,
+  "package_version": "0.1.0",
+  "python": "3.13.18",
+  "database_url": "sqlite:///data/prizepicks.db",
+  "config": {
+    "seasons": [
+      2024
+    ],
+    "stats": [
+      "points",
+      "rebounds",
+      "assists"
+    ],
+    "models": [
+      "ewma",
+      "minutes_adjusted",
+      "rolling_10",
+      "rolling_5",
+      "season_average"
+    ],
+    "families": [
+      "auto",
+      "normal"
+    ],
+    "include_empirical": true,
+    "min_prior_games": 10,
+    "line_window": 10,
+    "line_offsets": [
+      -2,
+      -1,
+      0,
+      1,
+      2
+    ],
+    "variance_window": 20,
+    "interval": [
+      0.1,
+      0.9
+    ],
+    "season_types": [
+      "regular"
+    ],
+    "max_observations": null,
+    "seed": 0,
+    "date_from": null,
+    "date_to": null
+  },
+  "candidates": 25158,
+  "observations": 75474,
+  "predictions": 828579,
+  "exclusions": {
+    "insufficient_prior_games": 1144,
+    "target_zero_minutes": 4
+  },
+  "missing_predictions": {
+    "empirical_history/empirical": 1635
+  },
+  "model_versions": {
+    "ewma": "1.0",
+    "minutes_adjusted": "1.0",
+    "rolling_10": "1.0",
+    "rolling_5": "1.0",
+    "season_average": "1.0"
+  },
+  "lines_note": "synthetic half-point evaluation lines (trailing median +/- offsets); not PrizePicks lines",
+  "report_generated_at": "2026-11-02T18:55:37.773815+00:00"
+}

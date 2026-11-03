@@ -13,12 +13,15 @@ import argparse
 import logging
 import sys
 from collections.abc import Sequence
-from datetime import date
+from datetime import UTC, date, datetime
+from pathlib import Path
 
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from prizepicks_predictor.backtest.config import BacktestConfig, parse_season
 from prizepicks_predictor.config import get_settings
 from prizepicks_predictor.db import IngestionRun, create_db_engine, get_session_factory, init_db
 from prizepicks_predictor.ingestion import CsvGameLogProvider, ProviderError, load_game_logs
@@ -79,6 +82,36 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("runs", help="List ingestion runs")
 
+    bt = sub.add_parser("backtest", help="Walk-forward evaluation of the baseline models")
+    bt.add_argument("--season", action="append", required=True, help="e.g. 2024-25; repeatable")
+    bt.add_argument(
+        "--stat",
+        action="append",
+        choices=[s.value for s in StatType],
+        help="repeatable; default all",
+    )
+    bt.add_argument("--models", default="all", help="'all' or comma list of model names")
+    bt.add_argument("--families", default="auto,normal", help="comma list of distribution families")
+    bt.add_argument(
+        "--no-empirical", action="store_true", help="skip the empirical-history reference"
+    )
+    bt.add_argument("--min-prior-games", type=int, default=10)
+    bt.add_argument("--max-observations", type=int, help="random subset of eligible player-games")
+    bt.add_argument("--seed", type=int, default=0)
+    bt.add_argument("--date-from", help="YYYY-MM-DD lower bound on target dates")
+    bt.add_argument("--date-to", help="YYYY-MM-DD upper bound on target dates")
+    bt.add_argument("--output-dir", default="data/backtests")
+    bt.add_argument("--run-name", help="directory name under output-dir (default: timestamp)")
+    bt.add_argument("--no-charts", action="store_true")
+
+    cal = sub.add_parser("calibrate", help="Fit calibrators on one run, evaluate on another")
+    cal.add_argument("--fit-run", required=True, help="validation run directory")
+    cal.add_argument("--eval-run", required=True, help="held-out run directory")
+    cal.add_argument("--stat", required=True, choices=[s.value for s in StatType])
+    cal.add_argument("--model", default=DEFAULT_MODEL)
+    cal.add_argument("--family", default=DistributionFamily.AUTO.value)
+    cal.add_argument("--no-charts", action="store_true")
+
     pred = sub.add_parser("predict", help="Predict More/Less probabilities for a prop line")
     pred.add_argument("--player-id", type=int, required=True, help="Internal player id")
     pred.add_argument("--stat", required=True, choices=[s.value for s in StatType])
@@ -131,6 +164,86 @@ def _print_prediction(result: PredictionResult) -> None:
 
 def _fmt(value: float | None, digits: int = 2) -> str:
     return "n/a" if value is None else f"{value:.{digits}f}"
+
+
+def _run_backtest(session: Session, args: argparse.Namespace, database_url: str) -> int:
+    from prizepicks_predictor.backtest.engine import run_backtest
+    from prizepicks_predictor.backtest.report import build_report, write_run
+
+    try:
+        config = BacktestConfig(
+            seasons=[parse_season(s) for s in args.season],
+            stats=[StatType(s) for s in args.stat] if args.stat else list(StatType),
+            models=sorted(MODELS)
+            if args.models == "all"
+            else [m.strip() for m in args.models.split(",")],
+            families=[DistributionFamily(f.strip()) for f in args.families.split(",")],
+            include_empirical=not args.no_empirical,
+            min_prior_games=args.min_prior_games,
+            max_observations=args.max_observations,
+            seed=args.seed,
+            date_from=date.fromisoformat(args.date_from) if args.date_from else None,
+            date_to=date.fromisoformat(args.date_to) if args.date_to else None,
+        )
+    except (ValidationError, ValueError) as exc:
+        print(f"error: invalid backtest configuration: {exc}", file=sys.stderr)
+        return 2
+
+    run_name = args.run_name or datetime.now(UTC).strftime("bt_%Y%m%d_%H%M%S")
+    run_dir = Path(args.output_dir) / run_name
+    print(f"backtest {config.season_labels} stats={[s.value for s in config.stats]} -> {run_dir}")
+
+    def progress(done: int, total: int) -> None:
+        print(f"  {done}/{total} player-games", file=sys.stderr, flush=True)
+
+    result = run_backtest(session, config, progress=progress)
+    write_run(result, run_dir, database_url=database_url)
+    print(
+        f"candidates={result.candidates} observations={len(result.observations)} "
+        f"predictions={len(result.predictions)} elapsed={result.elapsed_seconds:.1f}s"
+    )
+    print(f"exclusions: {dict(result.exclusions)}")
+    if result.missing:
+        print(f"missing predictions: {dict(result.missing)}")
+    if not result.observations:
+        print("no eligible observations; nothing to report")
+        return 0
+    cmp = build_report(run_dir, charts=not args.no_charts)
+    _print_table(
+        [
+            "stat",
+            "model",
+            "family",
+            "n",
+            "MAE",
+            "RMSE",
+            "bias",
+            "NLL",
+            "cov80",
+            "Brier",
+            "logloss",
+            "ECE",
+        ],
+        [
+            (
+                r.stat,
+                r.model,
+                r.family,
+                r.n,
+                f"{r.mae:.3f}",
+                f"{r.rmse:.3f}",
+                f"{r.bias:+.3f}",
+                f"{r.nll:.3f}",
+                f"{r.coverage:.3f}",
+                f"{r.brier:.4f}",
+                f"{r.log_loss:.4f}",
+                f"{r.ece:.4f}",
+            )
+            for r in sorted(cmp.rows, key=lambda r: (r.stat, r.model, r.family))
+        ],
+    )
+    print(f"summary: {run_dir / 'summary.md'}")
+    return 0
 
 
 def _print_table(headers: Sequence[str], rows: Sequence[Sequence[object]]) -> None:
@@ -248,6 +361,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                     for r in rows
                 ],
             )
+            return 0
+
+        if args.command == "backtest":
+            return _run_backtest(session, args, engine.url.render_as_string(hide_password=True))
+
+        if args.command == "calibrate":
+            from prizepicks_predictor.backtest.calibrate import (
+                calibrate,
+                render_calibration,
+                write_calibration_report,
+            )
+
+            try:
+                report = calibrate(
+                    Path(args.fit_run),
+                    Path(args.eval_run),
+                    stat=args.stat,
+                    model=args.model,
+                    family=args.family,
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            path = write_calibration_report(report, Path(args.eval_run), chart=not args.no_charts)
+            print(render_calibration(report))
+            print(f"written {path}")
             return 0
 
         if args.command == "predict":
