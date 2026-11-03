@@ -72,17 +72,27 @@ Done when:
 - [x] Predictions demonstrated on real players with illustrative lines; still unvalidated.
 - [x] Walk-forward evaluation designed (`docs/BACKTESTING_PLAN.md`).
 
-### Phase 3 — Model training and validation
+### Phase 3 — Baseline validation ✅ (ML models deferred)
 
 Done when:
-- [ ] Walk-forward backtest harness per `docs/BACKTESTING_PLAN.md`: develop on 2023-24,
-      calibrate on 2024-25, test once on 2025-26.
-- [ ] Metrics reported per stat type: MAE, RMSE, Brier, log loss, calibration curves, hit rate.
-- [ ] XGBoost / gradient-boosted models trained and compared against every baseline.
-- [ ] Probability calibration (Platt / isotonic) evaluated on held-out folds.
-- [ ] `model_versions` table and experiment log; each backtest report is reproducible.
-- [ ] Forecasting backtests are clearly distinguished from wagering simulations, which
-      require timestamped historical lines we do not yet have.
+- [x] Walk-forward backtest harness per `docs/BACKTESTING_PLAN.md`: develop on 2023-24,
+      calibrate on 2024-25, test once on 2025-26 (`ppp backtest`, `ppp calibrate`).
+- [x] Metrics per stat: MAE, RMSE, bias, NLL, interval coverage and width, Brier, log loss,
+      ECE, reliability tables; strata by season, prior games, minutes, role; bootstrap CIs.
+- [x] Platt and isotonic calibration fitted on validation only, evaluated on the held-out season.
+- [x] Model versions, config and provenance recorded per run (`run.json`); reports reproducible
+      from saved predictions without re-running.
+- [x] Forecasting backtests use synthetic, pregame-only, model-independent lines and are
+      labelled as such; no wagering simulation exists because no historical lines exist.
+- [x] Leakage audit (`docs/LEAKAGE_AUDIT.md`) and licensing risk note (`docs/LICENSING_RISK.md`).
+- [ ] Deferred: XGBoost / gradient-boosted models versus the baselines (needs richer features first).
+- [ ] Deferred: `model_versions` database table (run.json carries versions for now).
+
+### Phase 3.5 — Context features (recommended next)
+
+- Schedules release for known future back-to-backs and rest; team box scores for opponent
+  pace and defence; rosters/injuries only with as-of timestamps.
+- Re-run the Phase 3 harness unchanged to measure the gain; nothing ships without it.
 
 ### Phase 4 — Backend and dashboard
 

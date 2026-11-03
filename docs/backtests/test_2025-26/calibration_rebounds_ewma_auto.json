@@ -1,0 +1,257 @@
+{
+  "stat": "rebounds",
+  "model": "ewma",
+  "family": "auto",
+  "fit_run": "data/backtests/val_2024-25",
+  "eval_run": "data/backtests/test_2025-26",
+  "supported": true,
+  "reason": "",
+  "calibrators": {
+    "platt": "Platt(a=0.902, b=0.051; a<1 means the inputs were overconfident)",
+    "isotonic": "Isotonic(106 blocks)"
+  },
+  "rows": [
+    {
+      "method": "uncalibrated",
+      "n_fit": 0,
+      "n_eval": 128095,
+      "brier": 0.19850910230372265,
+      "log_loss": 0.5823684602657985,
+      "ece": 0.013006407991120265
+    },
+    {
+      "method": "platt",
+      "n_fit": 125790,
+      "n_eval": 128095,
+      "brier": 0.19843969930399868,
+      "log_loss": 0.5818627271108958,
+      "ece": 0.010085634740490098
+    },
+    {
+      "method": "isotonic",
+      "n_fit": 125790,
+      "n_eval": 128095,
+      "brier": 0.19842488985022108,
+      "log_loss": 0.5818474779873961,
+      "ece": 0.005962634721396989
+    }
+  ],
+  "reliability": {
+    "uncalibrated": [
+      {
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 5445,
+        "mean_predicted": 0.0688316013145471,
+        "observed_frequency": 0.10835629017447199
+      },
+      {
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 16964,
+        "mean_predicted": 0.1540417931263566,
+        "observed_frequency": 0.17360292383871728
+      },
+      {
+        "lo": 0.2,
+        "hi": 0.30000000000000004,
+        "n": 19955,
+        "mean_predicted": 0.24952687843918703,
+        "observed_frequency": 0.25742921573540467
+      },
+      {
+        "lo": 0.30000000000000004,
+        "hi": 0.4,
+        "n": 18152,
+        "mean_predicted": 0.34878036844607224,
+        "observed_frequency": 0.36001542529748787
+      },
+      {
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 16082,
+        "mean_predicted": 0.44958726611062966,
+        "observed_frequency": 0.4684118890685238
+      },
+      {
+        "lo": 0.5,
+        "hi": 0.6000000000000001,
+        "n": 15185,
+        "mean_predicted": 0.548998898838661,
+        "observed_frequency": 0.5591043793216991
+      },
+      {
+        "lo": 0.6000000000000001,
+        "hi": 0.7000000000000001,
+        "n": 14025,
+        "mean_predicted": 0.6494435583160029,
+        "observed_frequency": 0.6574688057040998
+      },
+      {
+        "lo": 0.7000000000000001,
+        "hi": 0.8,
+        "n": 12276,
+        "mean_predicted": 0.7481481486644056,
+        "observed_frequency": 0.7445421961550994
+      },
+      {
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 8015,
+        "mean_predicted": 0.8442702459443222,
+        "observed_frequency": 0.8290704928259514
+      },
+      {
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 1996,
+        "mean_predicted": 0.925121688503518,
+        "observed_frequency": 0.9138276553106213
+      }
+    ],
+    "platt": [
+      {
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 2974,
+        "mean_predicted": 0.0709758354132014,
+        "observed_frequency": 0.09549428379287156
+      },
+      {
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 13340,
+        "mean_predicted": 0.15682476238993281,
+        "observed_frequency": 0.15164917541229386
+      },
+      {
+        "lo": 0.2,
+        "hi": 0.30000000000000004,
+        "n": 20150,
+        "mean_predicted": 0.2508024900356034,
+        "observed_frequency": 0.23215880893300248
+      },
+      {
+        "lo": 0.30000000000000004,
+        "hi": 0.4,
+        "n": 19978,
+        "mean_predicted": 0.34939355745158956,
+        "observed_frequency": 0.3310641705876464
+      },
+      {
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 17951,
+        "mean_predicted": 0.449493585906025,
+        "observed_frequency": 0.4452119659071918
+      },
+      {
+        "lo": 0.5,
+        "hi": 0.6000000000000001,
+        "n": 16982,
+        "mean_predicted": 0.5491381244616201,
+        "observed_frequency": 0.5535861500412201
+      },
+      {
+        "lo": 0.6000000000000001,
+        "hi": 0.7000000000000001,
+        "n": 15437,
+        "mean_predicted": 0.6492040524025661,
+        "observed_frequency": 0.6589363218241886
+      },
+      {
+        "lo": 0.7000000000000001,
+        "hi": 0.8,
+        "n": 12841,
+        "mean_predicted": 0.747467187778563,
+        "observed_frequency": 0.7530566155283857
+      },
+      {
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 7169,
+        "mean_predicted": 0.8429437437259086,
+        "observed_frequency": 0.8460036267261821
+      },
+      {
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 1273,
+        "mean_predicted": 0.9212581337919322,
+        "observed_frequency": 0.9120188531029065
+      }
+    ],
+    "isotonic": [
+      {
+        "lo": 0.0,
+        "hi": 0.1,
+        "n": 4,
+        "mean_predicted": 0.05,
+        "observed_frequency": 0.0
+      },
+      {
+        "lo": 0.1,
+        "hi": 0.2,
+        "n": 16797,
+        "mean_predicted": 0.1521152749599149,
+        "observed_frequency": 0.14300172649877954
+      },
+      {
+        "lo": 0.2,
+        "hi": 0.30000000000000004,
+        "n": 21222,
+        "mean_predicted": 0.24645241953423422,
+        "observed_frequency": 0.2371595514089153
+      },
+      {
+        "lo": 0.30000000000000004,
+        "hi": 0.4,
+        "n": 19303,
+        "mean_predicted": 0.346753432988885,
+        "observed_frequency": 0.3374086929492825
+      },
+      {
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 15079,
+        "mean_predicted": 0.44204962890952965,
+        "observed_frequency": 0.44160753365607797
+      },
+      {
+        "lo": 0.5,
+        "hi": 0.6000000000000001,
+        "n": 19383,
+        "mean_predicted": 0.5456621214267352,
+        "observed_frequency": 0.5482639426301398
+      },
+      {
+        "lo": 0.6000000000000001,
+        "hi": 0.7000000000000001,
+        "n": 13264,
+        "mean_predicted": 0.6488832474623367,
+        "observed_frequency": 0.6550060313630881
+      },
+      {
+        "lo": 0.7000000000000001,
+        "hi": 0.8,
+        "n": 14009,
+        "mean_predicted": 0.7494751341771712,
+        "observed_frequency": 0.7449496752087943
+      },
+      {
+        "lo": 0.8,
+        "hi": 0.9,
+        "n": 6923,
+        "mean_predicted": 0.8380956896340377,
+        "observed_frequency": 0.8341759352881699
+      },
+      {
+        "lo": 0.9,
+        "hi": 1.0,
+        "n": 2111,
+        "mean_predicted": 0.9109118984370904,
+        "observed_frequency": 0.9128375177640928
+      }
+    ]
+  }
+}
