@@ -13,6 +13,7 @@ from prizepicks_predictor.db.models import (
     Season,
     SnapshotImmutableError,
     Team,
+    TeamGameStat,
 )
 from prizepicks_predictor.db.session import create_db_engine, get_session_factory, init_db
 
@@ -29,6 +30,7 @@ __all__ = [
     "Season",
     "SnapshotImmutableError",
     "Team",
+    "TeamGameStat",
     "create_db_engine",
     "get_session_factory",
     "init_db",

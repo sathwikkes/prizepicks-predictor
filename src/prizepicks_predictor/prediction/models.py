@@ -222,12 +222,76 @@ class ScheduleAdjustedEwmaModel:
         )
 
 
+OPPONENT_FACTORS_PATH = Path(__file__).resolve().parents[3] / "artifacts" / "opponent_factors.json"
+
+
+@lru_cache(maxsize=1)
+def load_opponent_factors(path: Path = OPPONENT_FACTORS_PATH) -> dict[str, dict[str, float]]:
+    """{stat: {"pace": a, "defense": b}} elasticities; empty (neutral) if absent."""
+    if not path.is_file():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        stat: {k: float(v) for k, v in facs.items()} for stat, facs in payload["factors"].items()
+    }
+
+
+class OpponentAdjustedEwmaModel:
+    """EWMA projection scaled by opponent pace and defence relative to the league.
+
+    projection = ewma * opp_pace_rel ** a_stat * opp_def_rel ** b_stat
+
+    ``opp_pace_rel`` and ``opp_def_rel`` are shrunk ratios to the league average (1.0 = average;
+    def_rel > 1 = weaker defence). ``a`` and ``b`` are per-stat elasticities fitted by least
+    squares on the development season (``ppp fit-opponent-factors``) and stored in
+    ``artifacts/opponent_factors.json``. Without the file or without context the model
+    reduces exactly to EWMA and says so.
+    """
+
+    name = "ewma_opponent"
+    version = "1.0"
+    min_games = 3
+
+    def __init__(self, factors: dict[str, dict[str, float]] | None = None) -> None:
+        self._factors = factors
+
+    def factors_for(self, stat: str) -> dict[str, float]:
+        table = self._factors if self._factors is not None else load_opponent_factors()
+        return {"pace": 0.0, "defense": 0.0, **table.get(stat, {})}
+
+    def project(self, features: FeatureSet) -> ModelOutput:
+        base = _require(features.ewma_mean, "EWMA mean")
+        facs = self.factors_for(features.stat_type.value)
+        ctx = features.opponent
+        assumptions = [
+            f"base = EWMA over {features.games_total} games, half-life "
+            f"{features.ewma_halflife_games:g} games ({base:.2f})",
+        ]
+        factor = 1.0
+        if ctx is None or not ctx.available:
+            assumptions.append("no opponent context available: no adjustment applied")
+        else:
+            factor = (ctx.opp_pace_rel ** facs["pace"]) * (ctx.opp_def_rel ** facs["defense"])
+            assumptions.append(
+                f"opponent {ctx.opponent}: pace rel {ctx.opp_pace_rel:.3f}^{facs['pace']:.3f} x "
+                f"defence rel {ctx.opp_def_rel:.3f}^{facs['defense']:.3f} = {factor:.4f} "
+                f"({ctx.games_used} opponent games, shrunk toward league average)"
+            )
+        if self._factors is None and not load_opponent_factors():
+            assumptions.append("opponent_factors.json not found: elasticities 0 (neutral)")
+        assumptions.append("elasticities fitted on the development season; research model")
+        return ModelOutput(
+            name=self.name, version=self.version, projection=base * factor, assumptions=assumptions
+        )
+
+
 MODELS: dict[str, ProjectionModel] = {
     "season_average": SeasonAverageModel(),
     "rolling_5": RollingAverageModel(5),
     "rolling_10": RollingAverageModel(10),
     "ewma": EwmaModel(),
     "ewma_schedule": ScheduleAdjustedEwmaModel(),
+    "ewma_opponent": OpponentAdjustedEwmaModel(),
     "minutes_adjusted": MinutesAdjustedModel(),
 }
 

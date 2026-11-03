@@ -126,8 +126,19 @@ Done when:
 - [x] `ewma_schedule` multiplicative adjustment fitted on 2023-24, compared on 2024-25:
       no improvement, worse on back-to-backs; `ewma` remains default
       (`docs/SCHEDULE_CONTEXT_RESULTS.md`).
-- [ ] Next context candidates: opponent pace and defence from team box scores; rosters and
-      injuries only with as-of timestamps. Same protocol: fit on 2023-24, validate on 2024-25.
+- [ ] Rosters and injuries only with as-of timestamps.
+
+### Phase 4C — Critical fixes, calibration support, opponent context ✅
+
+- [x] Prospective Forecasts page crash fixed (display column mismatch); real export imports
+      into a fresh database for regression tests; time-zone display selector.
+- [x] Calibration support detection: artifacts carry their training range; extreme
+      thresholds fall back to the raw estimate with a plain-English reason; no 1.000 display.
+- [x] Dashboard clarity: freshness table, next matchups, warning explanations, illustrative
+      threshold and unconfirmed-matchup labels, performance interpretation notes.
+- [x] Opponent pace/defence features from cached team logs; `ewma_opponent` fitted on 2023-24,
+      validated on 2024-25: small consistent gain on all stats, below the promotion bar;
+      EWMA stays default (`docs/OPPONENT_CONTEXT_RESULTS.md`).
 
 ### Phase 5 — Backend and dashboard
 

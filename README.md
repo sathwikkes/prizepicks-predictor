@@ -49,7 +49,10 @@ uv run streamlit run src/prizepicks_predictor/dashboard/app.py
 ```
 
 Five pages: data status, player exploration, prediction analysis, prospective forecasts,
-model performance. See [docs/DASHBOARD.md](docs/DASHBOARD.md).
+model performance. See [docs/DASHBOARD.md](docs/DASHBOARD.md). Research models beyond the
+EWMA default (`ewma_schedule`, `ewma_opponent`) are available through
+`ppp predict --model ... [--opponent XXX]`; their evaluations are in
+`docs/SCHEDULE_CONTEXT_RESULTS.md` and `docs/OPPONENT_CONTEXT_RESULTS.md`.
 
 ## Quickstart with real NBA data
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import statistics
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -18,6 +19,11 @@ from prizepicks_predictor.prediction.distributions import (
 )
 from prizepicks_predictor.prediction.features import build_features, stat_value
 from prizepicks_predictor.prediction.models import ModelInputError, get_model
+from prizepicks_predictor.prediction.opponent_context import (
+    OpponentContext,
+    build_opponent_context,
+    league_averages,
+)
 from prizepicks_predictor.prediction.schedule_context import ScheduleContext, build_schedule_context
 from prizepicks_predictor.prediction.schemas import (
     CalibrationInfo,
@@ -27,9 +33,13 @@ from prizepicks_predictor.prediction.schemas import (
 )
 from prizepicks_predictor.services.game_logs import PlayerNotFoundError, resolve_player
 from prizepicks_predictor.services.game_logs import get_player_game_logs as _game_logs
+from prizepicks_predictor.services.team_context import load_team_lines
 from prizepicks_predictor.services.team_schedule import team_game_dates_before
 
 SMALL_SAMPLE_GAMES = 10
+#: Calibration lines were trailing-median +/- 2 (half-point); beyond this the threshold is
+#: farther from the player's recent median than any validated line.
+MAX_VALIDATED_OFFSET = 2.5
 #: Games used to estimate outcome variance. Long enough to be stable, short
 #: enough to track role changes.
 VARIANCE_WINDOW = 20
@@ -85,6 +95,25 @@ def schedule_context_for(
     )
 
 
+def opponent_context_for(session: Session, request: PredictionRequest) -> OpponentContext | None:
+    """Opponent pace/defence from team box scores before the target; None without an opponent."""
+    if request.opponent is None:
+        return None
+    lines = load_team_lines(session, before=request.as_of_date)
+    all_lines = [ln for rows in lines.values() for ln in rows]
+    league = league_averages(all_lines, request.as_of_date)
+    season = (
+        request.as_of_date.year if request.as_of_date.month >= 10 else request.as_of_date.year - 1
+    )
+    return build_opponent_context(
+        request.opponent.upper(),
+        lines.get(request.opponent.upper(), []),
+        league=league,
+        target_date=request.as_of_date,
+        season_start_year=season,
+    )
+
+
 def predict(
     session: Session,
     request: PredictionRequest,
@@ -115,7 +144,10 @@ def predict(
 
     features = build_features(history, stat=request.stat_type, as_of_date=request.as_of_date)
     features = features.model_copy(
-        update={"schedule": schedule_context_for(session, features.latest_team, request)}
+        update={
+            "schedule": schedule_context_for(session, features.latest_team, request),
+            "opponent": opponent_context_for(session, request),
+        }
     )
     if features.games_total < model.min_games:
         raise InsufficientDataError(
@@ -150,6 +182,11 @@ def predict(
 
     calibrated = None
     info = None
+    summary = "Uncalibrated estimate shown"
+    recent_values = [float(stat_value(r, request.stat_type)) for r in played[:10]]
+    line_offset = (request.line - statistics.median(recent_values)) if recent_values else None
+    if line_offset is not None and abs(line_offset) > MAX_VALIDATED_OFFSET:
+        warnings.append(WarningCode.THRESHOLD_FAR_FROM_RECENT_MEDIAN)
     if not request.calibrate:
         status = "uncalibrated: calibration disabled by request"
     else:
@@ -167,7 +204,9 @@ def predict(
             )
             warnings.append(WarningCode.CALIBRATION_UNAVAILABLE)
         else:
-            calibrated = artifact.apply(probabilities)
+            non_push = probabilities.more + probabilities.less
+            cond = probabilities.more / non_push if non_push > 0 else probabilities.more
+            support = artifact.support_status(cond)
             held = artifact.held_out
             info = CalibrationInfo(
                 artifact_id=artifact.artifact_id,
@@ -178,10 +217,24 @@ def predict(
                 line_policy=artifact.line_policy,
                 held_out_ece_calibrated=held.ece_calibrated if held else None,
                 held_out_ece_uncalibrated=held.ece_uncalibrated if held else None,
+                support_status=support.status,
+                support_message=support.message,
+                evidence_count=support.bin_count,
             )
-            status = f"{artifact.method} ({artifact.validation_status}; synthetic lines only)"
-            if request.line_is_integer:
-                warnings.append(WarningCode.CALIBRATION_INTEGER_LINE_UNVALIDATED)
+            if support.status == "outside_range":
+                status = f"uncalibrated: {support.message}"
+                summary = "Calibration outside validated range"
+                warnings.append(WarningCode.CALIBRATION_OUTSIDE_SUPPORT)
+            elif support.status == "insufficient_evidence":
+                status = f"uncalibrated: {support.message}"
+                summary = "Insufficient calibration evidence"
+                warnings.append(WarningCode.CALIBRATION_INSUFFICIENT_EVIDENCE)
+            else:
+                calibrated = artifact.apply(probabilities)
+                status = f"{artifact.method} ({artifact.validation_status}; synthetic lines only)"
+                summary = "Calibration supported"
+                if request.line_is_integer:
+                    warnings.append(WarningCode.CALIBRATION_INTEGER_LINE_UNVALIDATED)
 
     return PredictionResult(
         player_id=player.id,
@@ -202,4 +255,6 @@ def predict(
         unavailable_features=list(features.unavailable),
         predicted_at=datetime.now(UTC),
         calibration_status=status,
+        calibration_summary=summary,
+        line_offset_from_recent_median=line_offset,
     )

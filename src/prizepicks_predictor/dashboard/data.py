@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +46,52 @@ from prizepicks_predictor.services.game_logs import (
 )
 from prizepicks_predictor.services.monitoring import SnapshotStats
 from prizepicks_predictor.services.monitoring import snapshot_stats as snapshot_stats
+
+DISPLAY_TIMEZONES = [
+    "UTC",
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+]
+
+
+def localize(value: datetime | None, tz: str) -> str:
+    """Render a stored naive-UTC datetime in ``tz`` for display only."""
+    if value is None:
+        return ""
+    from zoneinfo import ZoneInfo
+
+    aware = value.replace(tzinfo=UTC).astimezone(ZoneInfo(tz))
+    return aware.strftime("%Y-%m-%d %H:%M %Z")
+
+
+@dataclass(frozen=True)
+class UpcomingGame:
+    game_date: date
+    tipoff_utc: datetime | None
+    away: str
+    home: str
+    status: str
+
+
+def upcoming_games(
+    session: Session, *, start: date, days: int = 3, limit: int = 40
+) -> list[UpcomingGame]:
+    rows = session.scalars(
+        select(ScheduledGame)
+        .where(
+            ScheduledGame.game_date >= start, ScheduledGame.game_date < start + timedelta(days=days)
+        )
+        .order_by(ScheduledGame.game_date, ScheduledGame.tipoff_utc)
+        .limit(limit)
+    ).all()
+    return [
+        UpcomingGame(
+            g.game_date, g.tipoff_utc, g.away_team.abbreviation, g.home_team.abbreviation, g.status
+        )
+        for g in rows
+    ]
 
 
 # ----------------------------------------------------------------------------- players

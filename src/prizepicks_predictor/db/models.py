@@ -319,3 +319,26 @@ class PredictionOutcome(Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
     snapshot: Mapped[PredictionSnapshot] = relationship(back_populates="outcome")
+
+
+class TeamGameStat(Base):
+    """One team's box-score totals for one game (pace and defence inputs)."""
+
+    __tablename__ = "team_game_stats"
+    __table_args__ = (UniqueConstraint("game_id", "team_id", name="uq_team_game"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("games.id"), nullable=False, index=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    minutes: Mapped[float] = mapped_column(Float, nullable=False)  # team minutes (240 regulation)
+    points: Mapped[int] = mapped_column(Integer, nullable=False)
+    fga: Mapped[int] = mapped_column(Integer, nullable=False)
+    fta: Mapped[int] = mapped_column(Integer, nullable=False)
+    oreb: Mapped[int] = mapped_column(Integer, nullable=False)
+    dreb: Mapped[int] = mapped_column(Integer, nullable=False)
+    tov: Mapped[int] = mapped_column(Integer, nullable=False)
+    ast: Mapped[int] = mapped_column(Integer, nullable=False)
+    ingestion_run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"))
+
+    game: Mapped[Game] = relationship()
+    team: Mapped[Team] = relationship()

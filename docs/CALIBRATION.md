@@ -54,6 +54,18 @@ adds the `calibration_integer_line_unvalidated` warning whenever a calibrated re
 produced at an integer threshold. Validating the conditional map at integer lines needs
 a backtest with integer offsets, which is a small Phase 4B task.
 
+## Support (Phase 4C)
+
+Each artifact also records its training domain: the 0.5th–99.5th percentiles of the raw
+conditional probability it was fitted on and the number of training pairs in 20 equal bins
+(`ppp annotate-calibration-support`; the fitted map and artifact id are unchanged). At
+prediction time the map is applied only when the raw probability lies inside that range
+*and* its bin holds at least 200 validated observations. Otherwise the raw estimate is
+shown with the headline "Calibration outside validated range" or "Insufficient calibration
+evidence" and the reason. For the committed points artifact the supported range is raw
+0.126–0.844: a threshold far below a player's median (raw P(more) 0.95) is reported, not
+mapped to 1.000. Probabilities are never displayed as exactly 1.000 or 0.000.
+
 ## Fallback
 
 `probabilities_calibrated` is `None`, `calibration_status` starts with `uncalibrated:` and

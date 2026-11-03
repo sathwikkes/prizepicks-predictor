@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
+from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from prizepicks_predictor.prediction.schemas import (
@@ -34,6 +35,9 @@ from prizepicks_predictor.prediction.schemas import (
 )
 
 ARTIFACT_SCHEMA_VERSION = 1
+SUPPORT_BINS = 20
+#: Minimum training pairs in a probability bin for the fitted map to count as evidence there.
+SUPPORT_MIN_COUNT = 200
 LINE_POLICY = (
     "synthetic half-point lines (floor(trailing-10 median)+0.5, offsets -2..+2), pooled; "
     "maps P(more | no push); not validated against market lines"
@@ -52,6 +56,30 @@ class HeldOutSummary(BaseModel):
     log_loss_calibrated: float
     ece_uncalibrated: float
     ece_calibrated: float
+
+
+class SupportCheck(BaseModel):
+    """Whether the fitted map has evidence at a given raw conditional probability."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: Literal["supported", "outside_range", "insufficient_evidence", "unknown"]
+    message: str
+    bin_count: int | None = None
+    support_range: tuple[float, float] | None = None
+
+
+def compute_support(p_fit: list[float] | NDArray[np.float64]) -> dict[str, object]:
+    """Training-domain metadata: 0.5th/99.5th percentiles and counts in equal-width bins."""
+    arr = np.asarray(p_fit, dtype=np.float64)
+    if arr.size == 0:
+        return {"support_lo": None, "support_hi": None, "support_bins": []}
+    counts, _ = np.histogram(np.clip(arr, 0, 1), bins=SUPPORT_BINS, range=(0.0, 1.0))
+    return {
+        "support_lo": float(np.quantile(arr, 0.005)),
+        "support_hi": float(np.quantile(arr, 0.995)),
+        "support_bins": [int(c) for c in counts],
+    }
 
 
 class CalibrationArtifact(BaseModel):
@@ -79,6 +107,11 @@ class CalibrationArtifact(BaseModel):
     held_out: HeldOutSummary | None = None
     line_policy: str = LINE_POLICY
     notes: list[str] = Field(default_factory=list)
+    #: Training domain of the raw conditional probability (added without changing the map).
+    support_lo: float | None = None
+    support_hi: float | None = None
+    support_bins: list[int] = Field(default_factory=list)
+    support_min_count: int = SUPPORT_MIN_COUNT
 
     @model_validator(mode="after")
     def _check_shape(self) -> CalibrationArtifact:
@@ -108,6 +141,47 @@ class CalibrationArtifact(BaseModel):
         p = min(max(p, eps), 1 - eps)
         z = self.a * float(np.log(p / (1 - p))) + self.b
         return float(1 / (1 + np.exp(-z)))
+
+    def support_status(self, p_more_given_no_push: float) -> SupportCheck:
+        p = min(max(p_more_given_no_push, 0.0), 1.0)
+        if self.support_lo is None or self.support_hi is None or not self.support_bins:
+            return SupportCheck(
+                status="unknown",
+                message="calibration training range not recorded for this artifact",
+            )
+        rng = (round(self.support_lo, 3), round(self.support_hi, 3))
+        idx = min(int(p * len(self.support_bins)), len(self.support_bins) - 1)
+        count = self.support_bins[idx]
+        if p < self.support_lo or p > self.support_hi:
+            return SupportCheck(
+                status="outside_range",
+                message=(
+                    f"raw probability {p:.3f} is outside the range where this calibration "
+                    f"was fitted and validated ({rng[0]:.3f} to {rng[1]:.3f})"
+                ),
+                bin_count=count,
+                support_range=rng,
+            )
+        if count < self.support_min_count:
+            return SupportCheck(
+                status="insufficient_evidence",
+                message=(
+                    f"only {count} validated observations near raw probability {p:.3f} "
+                    f"(need {self.support_min_count})"
+                ),
+                bin_count=count,
+                support_range=rng,
+            )
+        return SupportCheck(
+            status="supported",
+            message=f"{count} validated observations near raw probability {p:.3f}",
+            bin_count=count,
+            support_range=rng,
+        )
+
+    def with_support(self, p_fit: list[float] | NDArray[np.float64]) -> CalibrationArtifact:
+        """Attach training-domain metadata. The fitted map and artifact id are unchanged."""
+        return self.model_copy(update=compute_support(p_fit))
 
     def apply(self, raw: OutcomeProbabilities) -> OutcomeProbabilities:
         non_push = raw.more + raw.less

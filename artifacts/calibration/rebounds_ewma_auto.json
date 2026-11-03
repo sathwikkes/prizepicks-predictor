@@ -252,5 +252,30 @@
   "notes": [
     "fitted on synthetic evaluation lines; not validated against market lines",
     "applies to P(more | no push); push probability is left to the model"
-  ]
+  ],
+  "support_lo": 0.03299556177339307,
+  "support_hi": 0.9301707193684651,
+  "support_bins": [
+    1289,
+    4311,
+    7451,
+    9002,
+    9883,
+    9595,
+    9077,
+    8698,
+    8076,
+    7829,
+    7718,
+    7347,
+    6968,
+    6715,
+    6416,
+    5749,
+    4514,
+    3159,
+    1829,
+    164
+  ],
+  "support_min_count": 200
 }

@@ -1,0 +1,49 @@
+{
+  "fitted_at": "2026-11-03T19:18:06.668686+00:00",
+  "fit_run": "data/backtests/opp_dev_2023-24",
+  "fit_seasons": [
+    2023
+  ],
+  "base_model": "ewma/auto",
+  "method": "least squares of log((actual+0.5)/(ewma+0.5)) on log pace_rel, log def_rel",
+  "min_n": 2000,
+  "diagnostics": {
+    "points": {
+      "n": 21032.0,
+      "r2": 0.00067,
+      "intercept": -0.2318
+    },
+    "rebounds": {
+      "n": 21032.0,
+      "r2": 0.00061,
+      "intercept": -0.1611
+    },
+    "assists": {
+      "n": 21032.0,
+      "r2": 0.00107,
+      "intercept": -0.1775
+    }
+  },
+  "factors": {
+    "points": {
+      "pace": 0.6601,
+      "defense": 0.653
+    },
+    "rebounds": {
+      "pace": 0.8914,
+      "defense": 0.2598
+    },
+    "assists": {
+      "pace": 0.5674,
+      "defense": 0.7214
+    }
+  },
+  "status": "research_only_not_default",
+  "validation": {
+    "run": "data/backtests/opp_val_2024-25 (summaries in docs/backtests/opp_val_2024-25)",
+    "seasons": [
+      2024
+    ],
+    "verdict": "small, consistent improvement over ewma on all three stats (MAE -0.0057 points, -0.0014 rebounds, -0.0024 assists; Brier better; ECE unchanged); below the practical-significance bar, so ewma remains default"
+  }
+}

@@ -70,6 +70,7 @@ def test_registry_and_default() -> None:
         "rolling_10",
         "ewma",
         "ewma_schedule",
+        "ewma_opponent",
         "minutes_adjusted",
     }
     assert DEFAULT_MODEL in MODELS

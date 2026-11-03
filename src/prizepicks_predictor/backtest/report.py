@@ -137,6 +137,8 @@ class Cohort:
     minutes_recent: Array
     start_rate: Array
     rest_bucket: list[str]
+    opp_def_rel: Array
+    opp_pace_rel: Array
 
 
 @dataclass
@@ -218,6 +220,8 @@ def build_cohorts(
                 minutes_recent=np.array([float(o["minutes_recent"] or "nan") for o in obs]),
                 start_rate=np.array([float(o["prior_start_rate"] or "nan") for o in obs]),
                 rest_bucket=[o.get("rest_bucket", "unknown") for o in obs],
+                opp_def_rel=np.array([float(o.get("opp_def_rel") or "nan") for o in obs]),
+                opp_pace_rel=np.array([float(o.get("opp_pace_rel") or "nan") for o in obs]),
             )
     return cohorts, common_sizes, dropped
 
@@ -260,6 +264,17 @@ def strata_rows(c: Cohort) -> list[tuple[str, str, ConfigRow]]:
             mask = (values >= lo) & (values < hi)
             if mask.any():
                 out.append((stratum, label, config_row(c, mask)))
+    for stratum, values in (("opp_defense", c.opp_def_rel), ("opp_pace", c.opp_pace_rel)):
+        finite = values[np.isfinite(values)]
+        if len(finite) >= 100:
+            lo_q, hi_q = np.quantile(finite, [0.2, 0.8])
+            for label, mask in (
+                ("bottom20", values <= lo_q),
+                ("middle", (values > lo_q) & (values < hi_q)),
+                ("top20", values >= hi_q),
+            ):
+                if mask.any():
+                    out.append((stratum, label, config_row(c, mask)))
     buckets_rest = np.array(c.rest_bucket)
     for label in ("back_to_back", "three_in_four", "normal", "long_rest"):
         mask = buckets_rest == label

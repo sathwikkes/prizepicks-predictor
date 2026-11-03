@@ -69,7 +69,7 @@ def test_cli_predict_happy_path(
     out = capsys.readouterr().out
     assert code == 0
     assert "Alex Rivera" in out and "P(more)" in out and "P(push) = 0.000" in out
-    assert "model: ewma" in out and "calibration: uncalibrated" in out
+    assert "model: ewma" in out and "Uncalibrated estimate shown" in out
     assert "12 games with minutes" in out
 
     code = main(

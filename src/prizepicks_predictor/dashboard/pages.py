@@ -9,8 +9,12 @@ import streamlit as st
 
 from prizepicks_predictor.dashboard import charts, data
 from prizepicks_predictor.dashboard.common import backtest_dirs, calibration_dir, db_session, footer
+from prizepicks_predictor.dashboard.labels import explain_warning, format_probability
 from prizepicks_predictor.prediction.models import DEFAULT_MODEL, MODELS
-from prizepicks_predictor.prediction.schemas import DistributionFamily, StatType
+from prizepicks_predictor.prediction.schemas import (
+    DistributionFamily,
+    StatType,
+)
 from prizepicks_predictor.services.monitoring import build_monitor
 
 STATS = [s.value for s in StatType]
@@ -18,67 +22,99 @@ STATS = [s.value for s in StatType]
 
 # ----------------------------------------------------------------------------- overview
 def overview_page() -> None:
-    st.title("PrizePicks Predictor — local research dashboard")
+    st.title("PrizePicks Predictor - local research dashboard")
     with db_session() as session:
         status = data.data_status(session, calibration_dir=calibration_dir())
+        start = status.next_game_date or status.now_utc.date()
+        upcoming = data.upcoming_games(session, start=start, days=3)
+        pending = sum(1 for r in data.list_snapshots(session, status="pending", limit=100000))
+        evaluated = sum(1 for r in data.list_snapshots(session, status="evaluated", limit=100000))
     for w in status.warnings:
         st.warning(w)
+    if not status.warnings and status.latest_game_date:
+        st.success("Data is current: no stale or missing inputs detected.")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Latest box score", str(status.latest_game_date or "none"))
-    c2.metric("Scheduled games loaded", sum(status.scheduled_by_status.values()))
+    c1.metric("Latest completed game", str(status.latest_game_date or "none"))
+    c2.metric("Upcoming scheduled games", status.scheduled_by_status.get("scheduled", 0))
     c3.metric(
         "Next game date",
         str(status.next_game_date or "n/a"),
         f"{status.next_game_count} games" if status.next_game_date else None,
     )
-    c4.metric(
-        "Saved forecasts",
-        status.snapshots.snapshots,
-        f"{status.snapshots.unique_player_game_stat} unique player-game-stat",
+    c4.metric("Forecasts pending / evaluated", f"{pending} / {evaluated}")
+
+    st.subheader("Data freshness")
+    fresh = pd.DataFrame(
+        [
+            {
+                "item": "Box scores (NBA.com via SportsDataverse)",
+                "state": str(status.latest_game_date),
+                "note": f"{status.box_score_lag_days} day(s) behind the schedule"
+                if status.box_score_lag_days
+                else "up to date with the schedule",
+            },
+            {
+                "item": "Schedule (ESPN via SportsDataverse)",
+                "state": data.localize(status.schedule_loaded_at, "UTC") or "not loaded",
+                "note": (
+                    f"{sum(status.scheduled_by_status.values())} games; "
+                    f"last final {status.schedule_last_final}"
+                ),
+            },
+            {
+                "item": "Calibration artifacts",
+                "state": f"{len(status.artifacts)} loaded",
+                "note": ", ".join(f"{a['stat']} ({a['validation']})" for a in status.artifacts)
+                or "none",
+            },
+            {
+                "item": "Forecast snapshots",
+                "state": f"{status.snapshots.snapshots} rows",
+                "note": (
+                    f"{status.snapshots.unique_player_game_stat} unique player-game-stat; "
+                    f"{status.snapshots.prospective} saved before tip-off"
+                ),
+            },
+        ]
     )
-    st.subheader("Season coverage (box scores)")
+    st.dataframe(fresh, hide_index=True, width="stretch")
+
+    st.subheader("Historical season coverage (regular-season box scores)")
     st.dataframe(
         pd.DataFrame([c.__dict__ for c in status.coverage]), hide_index=True, width="stretch"
     )
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Schedule")
-        st.write(
-            {
-                "by status": status.scheduled_by_status,
-                "loaded at (UTC)": str(status.schedule_loaded_at),
-                "last final game": str(status.schedule_last_final),
-            }
+
+    st.subheader(f"Next matchups (from {start})")
+    if upcoming:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "date": g.game_date,
+                        "tip-off (UTC)": data.localize(g.tipoff_utc, "UTC"),
+                        "matchup": f"{g.away} @ {g.home}",
+                        "status": g.status,
+                    }
+                    for g in upcoming
+                ]
+            ),
+            hide_index=True,
+            width="stretch",
         )
-        st.caption(
-            "Source: ESPN schedule republished by SportsDataverse. "
-            "Statuses update only when the schedule is reloaded."
-        )
-    with right:
-        st.subheader("Calibration artifacts in use")
-        if status.artifacts:
-            st.dataframe(pd.DataFrame(status.artifacts), hide_index=True, width="stretch")
-        else:
-            st.info("none loaded")
-    st.subheader("Forecast snapshots")
-    s = status.snapshots
-    st.write(
-        {
-            "rows": s.snapshots,
-            "unique player-game-stat combinations": s.unique_player_game_stat,
-            "players": s.players,
-            "games": s.games,
-            "batches": s.batches,
-            "revisions beyond the first": s.revisions_beyond_first,
-            "saved before a known tip-off (prospective)": s.prospective,
-            "no tip-off to verify against (manual / replay)": s.unverified,
-        }
-    )
+    else:
+        st.info("No scheduled games loaded. Run `ppp ingest-schedule --season <END_YEAR>`.")
     st.caption(
         "Participants in schedule-driven forecasts are *expected* from recent appearances, "
-        "not confirmed "
-        "active. Players who end up inactive evaluate as did-not-play."
+        "not confirmed active; inactive players evaluate as did-not-play."
     )
+    with st.expander("Diagnostics (raw)"):
+        st.write(
+            {
+                "schedule by status": status.scheduled_by_status,
+                "snapshots": status.snapshots.__dict__,
+            }
+        )
+        st.write(status.artifacts)
     footer()
 
 
@@ -168,10 +204,10 @@ def players_page() -> None:
 def predict_page() -> None:
     st.title("Prediction analysis")
     st.caption(
-        "Calls the same `predict()` service as the CLI. "
-        "Thresholds you enter here are illustrative evaluation lines."
+        "Calls the same `predict()` service as the CLI. Thresholds entered here are "
+        "**illustrative**: they are not market lines."
     )
-    query = st.text_input("Player search", placeholder="e.g. sabonis")
+    query = st.text_input("Player search", placeholder="e.g. doncic")
     with db_session() as session:
         matches = data.search_players(session, query) if query else []
         if not matches:
@@ -187,7 +223,7 @@ def predict_page() -> None:
             value=date.today() + timedelta(days=1),
         )
         line = c3.number_input(
-            "Evaluation threshold (illustrative)",
+            "Illustrative threshold (not a market line)",
             min_value=0.5,
             max_value=100.0,
             value=20.5,
@@ -201,7 +237,7 @@ def predict_page() -> None:
             family = DistributionFamily(
                 m2.selectbox("Distribution", [f.value for f in DistributionFamily])
             )
-            calibrate = m3.checkbox("Apply calibration artifact if available", value=True)
+            calibrate = m3.checkbox("Apply calibration artifact if supported", value=True)
         view = data.run_prediction(
             session,
             player_id=pid,
@@ -212,6 +248,7 @@ def predict_page() -> None:
             distribution=family,
             calibrate=calibrate,
         )
+        scheduled = data.upcoming_games(session, start=target, days=1)
     if view.error:
         if view.error_kind == "insufficient_data":
             st.warning(f"Insufficient history: {view.error}")
@@ -221,42 +258,106 @@ def predict_page() -> None:
         return
     r = view.result
     assert r is not None
-    st.subheader(f"{r.player_name} — {r.stat_type.value} vs {r.line:g} on {r.as_of_date}")
+    team_game = next((g for g in scheduled if r.team in (g.home, g.away)), None) if r.team else None
+    matchup = (
+        f"{team_game.away} @ {team_game.home}"
+        if team_game
+        else "no scheduled game found for this player on this date"
+    )
+    st.subheader(f"{r.player_name} - {r.stat_type.value} vs {r.line:g} on {r.as_of_date}")
+    st.caption(
+        f"Matchup: {matchup}. "
+        + ("" if team_game else "The forecast is not tied to a confirmed game.")
+    )
     a, b, c, d = st.columns(4)
     a.metric("Projected total", f"{r.model.projection:.2f}")
     b.metric("80% interval", f"{r.interval_80[0]:.0f} - {r.interval_80[1]:.0f}")
     c.metric("Games used", r.sample_size, f"{r.features.season_games} this season")
     d.metric("Model", f"{r.model.name} v{r.model.version}")
+
     p = r.probabilities
-    rows = [{"": "raw", "P(more)": p.more, "P(less)": p.less, "P(push)": p.push}]
+    rows = [
+        {
+            "estimate": "raw (model)",
+            "P(more)": format_probability(p.more),
+            "P(less)": format_probability(p.less),
+            "P(push)": format_probability(p.push),
+        }
+    ]
     if r.probabilities_calibrated is not None:
         q = r.probabilities_calibrated
-        rows.append({"": "calibrated", "P(more)": q.more, "P(less)": q.less, "P(push)": q.push})
-    st.dataframe(pd.DataFrame(rows).set_index("").round(3), width="stretch")
-    st.write(f"**Calibration status:** {r.calibration_status}")
+        rows.append(
+            {
+                "estimate": "calibrated",
+                "P(more)": format_probability(q.more),
+                "P(less)": format_probability(q.less),
+                "P(push)": format_probability(q.push),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows).set_index("estimate"), width="stretch")
+    if r.calibration_summary == "Calibration supported":
+        st.success(
+            f"**{r.calibration_summary}.** {r.calibration.support_message if r.calibration else ''}"
+        )
+    elif r.calibration_summary == "Uncalibrated estimate shown":
+        st.info(
+            f"**{r.calibration_summary}.** {r.calibration_status.removeprefix('uncalibrated: ')}"
+        )
+    else:
+        st.warning(
+            f"**{r.calibration_summary}.** "
+            f"{r.calibration_status.removeprefix('uncalibrated: ')} "
+            "The raw model estimate is shown."
+        )
+    if r.probabilities_calibrated is not None and (
+        r.probabilities_calibrated.more >= 0.9995 or r.probabilities_calibrated.less >= 0.9995
+    ):
+        st.warning(
+            "A probability shown as > 0.999 means every validated observation in this range "
+            "went the same way; it is not a guarantee."
+        )
     if r.calibration is not None:
         held = (
             f"held-out ECE {r.calibration.held_out_ece_uncalibrated:.4f} -> "
             f"{r.calibration.held_out_ece_calibrated:.4f}"
             if r.calibration.held_out_ece_calibrated is not None
+            and r.calibration.held_out_ece_uncalibrated is not None
             else "no held-out metrics"
         )
         st.caption(
-            f"Artifact `{r.calibration.artifact_id}` / fit seasons {r.calibration.fit_seasons} / "
-            f"{held}. {r.calibration.line_policy}."
+            f"Artifact `{r.calibration.artifact_id}` / fit seasons "
+            f"{r.calibration.fit_seasons} / {held}. {r.calibration.line_policy}."
         )
+    if r.line_offset_from_recent_median is not None:
+        st.caption(
+            f"Threshold is {r.line_offset_from_recent_median:+.1f} from the player's "
+            "trailing-10-game median."
+        )
+
     if r.warnings:
-        st.warning("Warnings: " + ", ".join(w.value for w in r.warnings))
-    if r.unavailable_features:
-        st.caption("Context not available to the model: " + ", ".join(r.unavailable_features))
+        st.markdown("**Things to know about this forecast**")
+        for w in r.warnings:
+            st.markdown(f"- {explain_warning(w.value)}")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("**Context used**")
+        sched = r.features.schedule
+        used = ["recent and season scoring history", "playing time", "home/away split"]
+        if sched is not None and sched.rest_days is not None:
+            used.append(f"rest {sched.rest_days}d ({sched.rest_bucket.replace('_', ' ')})")
+        st.markdown("\n".join(f"- {u}" for u in used))
+    with col_b:
+        st.markdown("**Context not available to the model**")
+        st.markdown("\n".join(f"- {u.replace('_', ' ')}" for u in r.unavailable_features))
     st.plotly_chart(charts.distribution_chart(r), width="stretch")
     with st.expander("Features used (all computed from games before the target date)"):
         st.json(r.features.model_dump(mode="json"))
-    with st.expander("Model assumptions and distribution notes"):
+    with st.expander("Model assumptions, distribution notes and diagnostic codes"):
         for line_ in r.model.assumptions:
             st.write(f"- {line_}")
         for note in r.distribution.notes:
             st.write(f"- {note}")
+        st.code(", ".join(w.value for w in r.warnings) or "no warnings")
     st.info(
         "Betting-market performance is unvalidated: no real PrizePicks lines exist in this project."
     )
@@ -273,7 +374,7 @@ def forecasts_page() -> None:
             footer()
             return
         date_labels = {f"{d} ({n} rows)": d for d, n in dates}
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         pick = c1.selectbox("Target date", ["all", *date_labels])
         target = None if pick == "all" else date_labels[pick]
         games = data.snapshot_games(session, target) if target else []
@@ -292,7 +393,8 @@ def forecasts_page() -> None:
                 "missing_result",
             ],
         )
-        player_q = st.text_input("Player filter", placeholder="name contains…")
+        tz = c5.selectbox("Display time zone (stored values stay UTC)", data.DISPLAY_TIMEZONES)
+        player_q = st.text_input("Player filter", placeholder="name contains...")
         rows = data.list_snapshots(
             session,
             target_date=target,
@@ -300,6 +402,7 @@ def forecasts_page() -> None:
             player_query=player_q or None,
             stat=None if stat_pick == "all" else StatType(stat_pick),
             status=None if status_pick == "all" else status_pick,
+            limit=5000,
         )
         stats_all = data.snapshot_stats(session, target_date=target) if target else None
     if stats_all:
@@ -325,44 +428,41 @@ def forecasts_page() -> None:
         "replay, not a live forecast. **not_scheduled** = the team had no game that day; "
         "**missing_result** = the game is not in the box-score data yet."
     )
-    frame = pd.DataFrame([r.__dict__ for r in rows]).rename(columns={"cutoff_at": "cutoff_utc"})
-    frame["matchup"] = frame.apply(
-        lambda x: f"{x.team or '?'} {'vs' if x.is_home else '@'} {x.opponent or '?'}", axis=1
-    )
-    show = frame[
+    table = pd.DataFrame(
         [
-            "target_date",
-            "player_name",
-            "matchup",
-            "stat",
-            "line",
-            "line_source",
-            "projection",
-            "q_lo",
-            "q_hi",
-            "p_more",
-            "p_more_cal",
-            "sample_size",
-            "kind",
-            "participant_status",
-            "status",
-            "actual",
-            "abs_error",
-            "covered",
-            "outcome_more",
-            "cutoff_at",
-            "tipoff_utc",
-            "model",
-            "revision",
+            {
+                "target date": r.target_date,
+                "player": r.player_name,
+                "matchup": f"{r.team or '?'} {'vs' if r.is_home else '@'} {r.opponent or '?'}",
+                "stat": r.stat,
+                "threshold": r.line,
+                "threshold source": r.line_source,
+                "projection": round(r.projection, 2),
+                "80% low": r.q_lo,
+                "80% high": r.q_hi,
+                "P(more) raw": format_probability(r.p_more),
+                "P(more) calibrated": format_probability(r.p_more_cal),
+                "games used": r.sample_size,
+                "type": r.kind,
+                "participant": r.participant_status,
+                "status": r.status,
+                "actual": r.actual,
+                "abs error": None if r.abs_error is None else round(r.abs_error, 2),
+                "in 80% interval": r.covered,
+                f"created ({tz})": data.localize(r.cutoff_at, tz),
+                f"cutoff ({tz})": data.localize(r.cutoff_at, tz),
+                f"tip-off ({tz})": data.localize(r.tipoff_utc, tz),
+                "model": r.model,
+                "revision": r.revision,
+            }
+            for r in rows
         ]
-    ]
-    numeric = show.select_dtypes("number").columns
-    show = show.copy()
-    show[numeric] = show[numeric].round(3)
-    st.dataframe(show, hide_index=True, width="stretch", height=520)
-    st.caption("cutoff_utc and tipoff_utc are UTC. Forecast cutoff is the generation time.")
+    )
+    st.dataframe(table, hide_index=True, width="stretch", height=520)
     st.caption(
-        "Lines marked synthetic_trailing_median are evaluation thresholds, not market lines."
+        f"Showing {len(rows)} rows (display limit 5000). Thresholds marked "
+        "synthetic_trailing_median are evaluation thresholds, not market lines. Created and "
+        "cutoff are the same instant: the forecast's generation time."
     )
     footer()
 
@@ -375,7 +475,13 @@ def performance_page() -> None:
         for run in data.load_backtest_runs(base):
             if run.name not in {r.name for r in runs}:
                 runs.append(run)
-    tab_hist, tab_pro = st.tabs(["Historical backtests (Phase 3)", "Prospective outcomes"])
+    st.caption(
+        "Lower MAE, RMSE, NLL, Brier and ECE are better; 80% coverage should be near 0.80. "
+        "Historical backtests replay past seasons against synthetic thresholds; the prospective "
+        "tab scores forecasts that were saved before tip-off. Neither measures betting-market "
+        "performance: no real market lines exist in this project."
+    )
+    tab_hist, tab_pro = st.tabs(["Historical backtests (replay)", "Prospective outcomes (pregame)"])
     with tab_hist:
         if not runs:
             st.info(
@@ -395,6 +501,10 @@ def performance_page() -> None:
                 f"Observations {meta.get('observations')}, candidates {meta.get('candidates')}, "
                 f"exclusions {meta.get('exclusions')}. Lines are synthetic evaluation thresholds "
                 "(trailing median +/- offsets), identical for every model."
+            )
+            st.caption(
+                f"Evaluation period: {run.seasons}. n = player-games on the common cohort; "
+                "each contributes 5 threshold observations to Brier/log loss/ECE."
             )
             stat = st.selectbox("Statistic", STATS, key="perf_stat")
             comp = [r for r in run.comparison if r["stat"] == stat]
