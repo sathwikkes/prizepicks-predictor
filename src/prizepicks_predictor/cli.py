@@ -168,6 +168,32 @@ def _build_parser() -> argparse.ArgumentParser:
     mon.add_argument("--since")
     mon.add_argument("--through")
 
+    sub.add_parser(
+        "check",
+        help="Readiness checks: schema, data coverage, schedule, artifacts, smoke prediction",
+    )
+
+    bk = sub.add_parser("backup", help="Write a consistent copy of the SQLite database")
+    bk.add_argument(
+        "--out", help="destination file (default data/backups/prizepicks-<UTC timestamp>.sqlite)"
+    )
+
+    rs = sub.add_parser("restore", help="Replace the database with a backup file")
+    rs.add_argument("--from", dest="source", required=True)
+    rs.add_argument(
+        "--force", action="store_true", help="overwrite a populated database (safety copy kept)"
+    )
+
+    ex = sub.add_parser(
+        "export-snapshots", help="Export prediction snapshots and outcomes to gzip CSV"
+    )
+    ex.add_argument("--out", required=True)
+
+    im = sub.add_parser(
+        "import-snapshots", help="Insert exported snapshots that are not already present"
+    )
+    im.add_argument("--from", dest="source", required=True)
+
     pred = sub.add_parser("predict", help="Predict More/Less probabilities for a prop line")
     pred.add_argument("--player-id", type=int, required=True, help="Internal player id")
     pred.add_argument("--stat", required=True, choices=[s.value for s in StatType])
@@ -432,6 +458,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         init_db(engine)
         print(f"Database initialized at {engine.url}")
         return 0
+    if args.command in ("backup", "restore"):
+        from prizepicks_predictor.services.portability import (
+            PortabilityError,
+            backup_database,
+            restore_database,
+        )
+
+        try:
+            if args.command == "backup":
+                out = (
+                    Path(args.out)
+                    if args.out
+                    else Path("data/backups")
+                    / (f"prizepicks-{datetime.now(UTC):%Y%m%dT%H%M%SZ}.sqlite")
+                )
+                written = backup_database(engine, out)
+                print(f"backup written: {written} ({written.stat().st_size / 1e6:.1f} MB)")
+            else:
+                target = restore_database(engine, Path(args.source), force=args.force)
+                print(f"restored {args.source} -> {target}")
+        except PortabilityError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        return 0
     init_db(engine)  # idempotent: creates tables added since the database was first built
 
     with session_factory() as session:
@@ -558,6 +608,42 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"evaluated through {summary.through}: considered={summary.considered} "
                 f"statuses={dict(summary.statuses)} pending_future={summary.pending_future} "
                 f"reevaluated={summary.reevaluated}"
+            )
+            return 0
+
+        if args.command == "check":
+            from prizepicks_predictor.prediction.service import resolve_calibration_dir
+            from prizepicks_predictor.services.readiness import render_checks, run_checks
+
+            checks = run_checks(
+                session, calibration_dir=resolve_calibration_dir(settings.calibration_dir)
+            )
+            print(render_checks(checks))
+            return 0 if all(c.status != "FAIL" for c in checks) else 1
+
+        if args.command == "export-snapshots":
+            from prizepicks_predictor.services.portability import export_snapshots
+
+            res = export_snapshots(session, Path(args.out))
+            print(f"exported {res.exported} snapshots to {args.out}")
+            return 0
+
+        if args.command == "import-snapshots":
+            from prizepicks_predictor.services.portability import import_snapshots, snapshot_counts
+
+            try:
+                res = import_snapshots(session, Path(args.source))
+            except (FileNotFoundError, OSError, ValueError) as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            total, outcomes = snapshot_counts(session)
+            print(
+                f"imported {res.imported} snapshots ({res.outcomes_imported} outcomes); "
+                f"skipped existing {res.skipped_existing}, "
+                f"unknown player {res.skipped_unknown_player}, "
+                f"schedule link missing {res.unlinked_schedule}; "
+                f"database now holds {total} snapshots, "
+                f"{outcomes} outcomes"
             )
             return 0
 
