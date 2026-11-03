@@ -30,6 +30,12 @@ CLI / (future) FastAPI
 | `backtest/lines.py` | synthetic pregame-only, model-independent half-point lines | nothing |
 | `backtest/metrics.py`, `calibration.py` | pure numpy metrics, bootstrap CIs, Platt and isotonic calibrators | numpy, scipy |
 | `backtest/report.py`, `calibrate.py` | persistence (`run.json`, gzip CSV), equal-cohort analysis, charts | matplotlib |
+| `backtest/fit_calibration.py` | writes versioned `CalibrationArtifact`s from runs | backtest, prediction |
+| `prediction/calibrators.py` | artifact schema, registry, push-preserving application | schemas |
+| `services/forecast.py` | schedule-driven pregame forecasts into immutable snapshots | prediction, db |
+| `services/evaluation.py` | post-game outcomes, DNP/void/missing policy | db |
+| `services/monitoring.py` | prospective performance report with cluster bootstrap | backtest.metrics |
+| `ingestion/schedules.py` | ESPN schedule adapter into `scheduled_games` | ingestion |
 
 **The backtest reuses the engine's pure functions, not a copy.** `build_features`,
 `model.project`, `predictive_variance`, `resolve_family` and the family parameterisation
@@ -89,6 +95,14 @@ never converted to a probability by a heuristic. The projection becomes the mean
 explicit predictive distribution whose variance comes from the player's own recent
 outcomes, and the probability of More/Less/Push is integrated from that distribution.
 See `docs/PREDICTION_METHODOLOGY.md`.
+
+**Snapshots are immutable at the ORM level.** A `before_update` listener on
+`PredictionSnapshot` raises, so no code path can quietly revise a pregame forecast; the
+only way to record new information is a new revision or an outcome row.
+
+**Calibration is a separate, versioned artifact.** The model never changes when a
+calibrator is refitted, and a prediction records which artifact touched it, so any
+snapshot can be reproduced from its model version plus artifact id.
 
 **Missing context is reported, not imputed.** `FeatureSet.unavailable` lists the
 matchup, pace, injury, lineup and usage features the engine is designed to accept but

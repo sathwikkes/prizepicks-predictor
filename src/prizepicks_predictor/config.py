@@ -28,6 +28,10 @@ class Settings(BaseSettings):
         description="API key for BALLDONTLIE. Optional; only needed for the live adapter.",
     )
     balldontlie_base_url: str = "https://api.balldontlie.io/v1"
+    calibration_dir: str = Field(
+        default="artifacts/calibration",
+        description="Directory of calibration artifacts applied by predict()",
+    )
     log_level: str = "INFO"
 
 

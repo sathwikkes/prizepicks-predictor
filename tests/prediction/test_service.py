@@ -50,7 +50,8 @@ def test_full_prediction_on_synthetic_fixture(loaded: Session) -> None:
     )
     assert res.probabilities.push == 0.0
     assert res.interval_80[0] <= res.model.projection <= res.interval_80[1]
-    assert res.calibration_status == "unvalidated"
+    assert res.calibration_status.startswith("uncalibrated")
+    assert res.probabilities_calibrated is None and res.calibration is None
     assert res.features.cutoff_last_game_date is not None
     assert res.features.cutoff_last_game_date < req.as_of_date
     assert "opponent_defensive_rating" in res.unavailable_features

@@ -88,13 +88,25 @@ Done when:
 - [ ] Deferred: XGBoost / gradient-boosted models versus the baselines (needs richer features first).
 - [ ] Deferred: `model_versions` database table (run.json carries versions for now).
 
-### Phase 3.5 — Context features (recommended next)
+### Phase 3.5 — Forecasting integration and prospective tracking ✅
 
-- Schedules release for known future back-to-backs and rest; team box scores for opponent
-  pace and defence; rosters/injuries only with as-of timestamps.
+Done when:
+- [x] `predict()` returns raw and calibrated probabilities with the artifact id, method,
+      fit seasons and validation status; push probability preserved; documented fallback.
+- [x] Versioned calibration artifacts with provenance; validated set (fit 2024-25, held out
+      2025-26) is the default; operational 2026-27 refit labelled in-sample only.
+- [x] `scheduled_games`, immutable `prediction_snapshots`, `prediction_outcomes`.
+- [x] `ppp ingest-schedule`, `ppp forecast`, `ppp evaluate-predictions`, `ppp monitor`.
+- [x] First genuine prospective batch saved before tip-off (2026-11-04 games).
+- [ ] Daily scheduling of ingest → forecast → evaluate (manual for now).
+
+### Phase 4 — Context features (recommended next)
+
+- Known future back-to-backs and rest from the schedule; opponent pace and defence from
+  team box scores; rosters/injuries only with as-of timestamps.
 - Re-run the Phase 3 harness unchanged to measure the gain; nothing ships without it.
 
-### Phase 4 — Backend and dashboard
+### Phase 5 — Backend and dashboard
 
 Done when:
 - [ ] FastAPI endpoints: health, player search, game logs, predict, model metrics.
@@ -102,7 +114,7 @@ Done when:
       More/Less probabilities with contributing factors.
 - [ ] Dashboard reads only from the API.
 
-### Phase 5 — PrizePicks analysis
+### Phase 6 — PrizePicks analysis (blocked on licensed data; see docs/LICENSING_RISK.md)
 
 Done when:
 - [ ] `projections` table with manual entry (and authorized live import if available).
@@ -111,7 +123,7 @@ Done when:
 - [ ] Explicit "no statistically supported edge" and "uncertainty too high" outcomes.
 - [ ] `prediction_snapshots` and `prediction_outcomes` tables track accuracy over time.
 
-### Phase 6 — Advanced features
+### Phase 7 — Advanced features
 
 - AI-assisted matchup research and injury-report interpretation.
 - Automated schedule and injury updates from an authorized source.

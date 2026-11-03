@@ -13,6 +13,17 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "data" / "samples"
 SYNTHETIC_CSV = FIXTURE_DIR / "synthetic_game_logs.csv"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_calibration_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never pick up the repository's real calibration artifacts by accident."""
+    from prizepicks_predictor.config import get_settings
+    from prizepicks_predictor.prediction.service import _registry_for
+
+    monkeypatch.setenv("PPP_CALIBRATION_DIR", str(tmp_path / "no-artifacts"))
+    get_settings.cache_clear()
+    _registry_for.cache_clear()
+
+
 @pytest.fixture
 def engine(tmp_path: Path) -> Engine:
     eng = create_db_engine(f"sqlite:///{tmp_path / 'test.db'}")

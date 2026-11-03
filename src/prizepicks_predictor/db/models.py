@@ -17,8 +17,10 @@ Design notes
 * Minutes are stored as a float of decimal minutes (34:30 -> 34.5) so they can
   be used directly in per-minute rate features later.
 
-Future tables (not implemented yet): projections, prediction_snapshots,
-model_versions, prediction_outcomes.
+Phase 3.5 adds ``scheduled_games`` (upcoming games from a schedule source, mutable
+facts), ``prediction_snapshots`` (immutable pregame forecasts; updates are refused at the
+ORM level) and ``prediction_outcomes`` (one evaluation row per snapshot, written after
+the game). Still planned: projections (real lines), model_versions.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -182,3 +185,137 @@ class ExternalId(Base):
     entity_type: Mapped[str] = mapped_column(String(16), nullable=False)  # player|team|game
     entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
     external_id: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ScheduledGame(Base):
+    """A game as published by a schedule source. Status and scores are updated on reload."""
+
+    __tablename__ = "scheduled_games"
+    __table_args__ = (
+        UniqueConstraint("source", "external_id", name="uq_scheduled_game_source_id"),
+        Index("ix_scheduled_games_date", "game_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    season_start_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    season_type: Mapped[str] = mapped_column(String(16), default="regular", nullable=False)
+    game_date: Mapped[date] = mapped_column(Date, nullable=False)  # local (US) game date
+    tipoff_utc: Mapped[datetime | None] = mapped_column(DateTime)
+    home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    #: scheduled | in_progress | final | postponed | canceled | unknown
+    status: Mapped[str] = mapped_column(String(16), default="scheduled", nullable=False)
+    home_score: Mapped[int | None] = mapped_column(Integer)
+    away_score: Mapped[int | None] = mapped_column(Integer)
+    loaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    home_team: Mapped[Team] = relationship(foreign_keys=[home_team_id])
+    away_team: Mapped[Team] = relationship(foreign_keys=[away_team_id])
+
+
+class PredictionSnapshot(Base):
+    """An immutable pregame forecast. Nothing here changes after insert."""
+
+    __tablename__ = "prediction_snapshots"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_prediction_snapshot_dedupe"),
+        Index("ix_prediction_snapshots_target", "target_date", "stat_type"),
+        Index("ix_prediction_snapshots_player", "player_id", "target_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    batch_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    #: player:target_date:stat:model:line:revision — identical forecasts are not re-inserted
+    dedupe_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False)
+    scheduled_game_id: Mapped[int | None] = mapped_column(ForeignKey("scheduled_games.id"))
+    team: Mapped[str | None] = mapped_column(String(5))
+    opponent: Mapped[str | None] = mapped_column(String(5))
+    is_home: Mapped[bool | None] = mapped_column(Boolean)
+    #: expected (inferred from recent participation) | confirmed (verified pregame source)
+    participant_status: Mapped[str] = mapped_column(String(16), default="expected", nullable=False)
+
+    stat_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_date: Mapped[date] = mapped_column(Date, nullable=False)
+    cutoff_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)  # UTC
+    generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)  # UTC
+    tipoff_utc: Mapped[datetime | None] = mapped_column(DateTime)
+
+    model_name: Mapped[str] = mapped_column(String(32), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    distribution_family: Mapped[str] = mapped_column(String(24), nullable=False)
+    calibration_artifact: Mapped[str | None] = mapped_column(String(160))
+    calibration_status: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    projection: Mapped[float] = mapped_column(Float, nullable=False)
+    dist_mean: Mapped[float] = mapped_column(Float, nullable=False)
+    dist_std: Mapped[float] = mapped_column(Float, nullable=False)
+    q_lo: Mapped[float] = mapped_column(Float, nullable=False)
+    q_hi: Mapped[float] = mapped_column(Float, nullable=False)
+
+    line: Mapped[float | None] = mapped_column(Float)
+    #: none | synthetic_trailing_median | manual
+    line_source: Mapped[str] = mapped_column(String(32), default="none", nullable=False)
+    p_more: Mapped[float | None] = mapped_column(Float)
+    p_less: Mapped[float | None] = mapped_column(Float)
+    p_push: Mapped[float | None] = mapped_column(Float)
+    p_more_cal: Mapped[float | None] = mapped_column(Float)
+    p_less_cal: Mapped[float | None] = mapped_column(Float)
+    p_push_cal: Mapped[float | None] = mapped_column(Float)
+
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    season_games: Mapped[int] = mapped_column(Integer, nullable=False)
+    history_latest_game_date: Mapped[date | None] = mapped_column(Date)
+    data_source: Mapped[str] = mapped_column(String(64), nullable=False)
+    features_json: Mapped[str] = mapped_column(Text, nullable=False)
+    warnings_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+    player: Mapped[Player] = relationship()
+    scheduled_game: Mapped[ScheduledGame | None] = relationship()
+    outcome: Mapped[PredictionOutcome | None] = relationship(
+        back_populates="snapshot", uselist=False
+    )
+
+
+class SnapshotImmutableError(RuntimeError):
+    pass
+
+
+@event.listens_for(PredictionSnapshot, "before_update")
+def _refuse_snapshot_update(
+    _mapper: object, _connection: object, target: PredictionSnapshot
+) -> None:
+    raise SnapshotImmutableError(f"prediction snapshot {target.id} is immutable")
+
+
+class PredictionOutcome(Base):
+    """Post-game evaluation of one snapshot. Written once; the snapshot is never touched."""
+
+    __tablename__ = "prediction_outcomes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("prediction_snapshots.id"), unique=True, nullable=False
+    )
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)  # UTC
+    game_id: Mapped[int | None] = mapped_column(ForeignKey("games.id"))
+    #: evaluated | did_not_play | missing_result | postponed | voided
+    status: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    actual: Mapped[int | None] = mapped_column(Integer)
+    actual_minutes: Mapped[float | None] = mapped_column(Float)
+    abs_error: Mapped[float | None] = mapped_column(Float)
+    sq_error: Mapped[float | None] = mapped_column(Float)
+    covered: Mapped[bool | None] = mapped_column(Boolean)
+    outcome_more: Mapped[bool | None] = mapped_column(Boolean)
+    outcome_push: Mapped[bool | None] = mapped_column(Boolean)
+    brier_raw: Mapped[float | None] = mapped_column(Float)
+    brier_cal: Mapped[float | None] = mapped_column(Float)
+    logloss_raw: Mapped[float | None] = mapped_column(Float)
+    logloss_cal: Mapped[float | None] = mapped_column(Float)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    snapshot: Mapped[PredictionSnapshot] = relationship(back_populates="outcome")

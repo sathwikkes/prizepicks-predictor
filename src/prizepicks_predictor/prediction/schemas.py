@@ -33,6 +33,7 @@ class WarningCode(StrEnum):
     EMPIRICAL_FALLBACK = "empirical_fallback"
     LONG_LAYOFF = "long_layoff"
     MATCHUP_CONTEXT_UNAVAILABLE = "matchup_context_unavailable"
+    CALIBRATION_UNAVAILABLE = "calibration_unavailable"
 
 
 #: Matchup/availability inputs the engine is designed for but cannot compute yet.
@@ -59,6 +60,9 @@ class PredictionRequest(BaseModel):
     distribution: DistributionFamily = DistributionFamily.AUTO
     opponent: str | None = Field(default=None, min_length=2, max_length=5)
     is_home: bool | None = None
+    calibrate: bool = Field(
+        default=True, description="Apply a matching calibration artifact if one exists"
+    )
 
     @field_validator("line")
     @classmethod
@@ -165,6 +169,21 @@ class OutcomeProbabilities(BaseModel):
         return self
 
 
+class CalibrationInfo(BaseModel):
+    """Which artifact calibrated the probabilities, and how far that can be trusted."""
+
+    model_config = ConfigDict(frozen=True)
+
+    artifact_id: str
+    method: str
+    fit_seasons: list[int]
+    n_fit: int
+    validation_status: str
+    line_policy: str
+    held_out_ece_calibrated: float | None = None
+    held_out_ece_uncalibrated: float | None = None
+
+
 class PredictionResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -178,6 +197,8 @@ class PredictionResult(BaseModel):
     model: ModelOutput
     distribution: DistributionSummary
     probabilities: OutcomeProbabilities
+    probabilities_calibrated: OutcomeProbabilities | None = None
+    calibration: CalibrationInfo | None = None
     interval_80: tuple[float, float]
 
     sample_size: int
@@ -186,5 +207,5 @@ class PredictionResult(BaseModel):
     unavailable_features: list[str]
     predicted_at: datetime
 
-    #: Probabilities are model outputs; calibration is unverified until Phase 3.
-    calibration_status: str = "unvalidated"
+    #: "uncalibrated: <reason>" or "<method> (<validation_status>; synthetic lines only)"
+    calibration_status: str = "uncalibrated"

@@ -1,8 +1,8 @@
 # Prediction methodology (Phase 2 baselines)
 
-Status: implemented and unit-tested on synthetic data. **Nothing here is validated against
-real NBA outcomes.** Every result carries `calibration_status = "unvalidated"` until Phase 3
-backtests on real data exist.
+Status: implemented, backtested on three real seasons (`docs/BACKTEST_RESULTS.md`) and
+calibrated on synthetic evaluation lines (`docs/CALIBRATION.md`). `calibration_status` on
+each result states which artifact, if any, was applied and how it was validated.
 
 ## 1. History
 
@@ -69,6 +69,13 @@ For integer-valued stats and line `L`:
 
 The three probabilities are validated to be in `[0, 1]` and to sum to 1 (`OutcomeProbabilities`).
 The 80% interval is the 10th and 90th percentiles of the same distribution.
+
+## 6b. Calibration (Phase 3.5)
+
+After the raw triple, `predict()` looks up a calibration artifact for the exact stat,
+model, version and family. If found, the conditional P(more | no push) is mapped through
+the fitted isotonic function and the non-push mass is re-split; the push probability is
+unchanged. Raw and calibrated triples are both returned. See `docs/CALIBRATION.md`.
 
 ## 7. Known limitations requiring real data
 
