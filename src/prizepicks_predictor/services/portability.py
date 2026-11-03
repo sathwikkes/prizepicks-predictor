@@ -166,6 +166,7 @@ class SnapshotTransfer:
     skipped_unknown_player: int = 0
     unlinked_schedule: int = 0
     outcomes_imported: int = 0
+    players_created: int = 0
 
 
 def export_snapshots(session: Session, dest: Path) -> SnapshotTransfer:
@@ -255,8 +256,15 @@ def _parse(field: str, raw: str) -> object:
     return raw
 
 
-def import_snapshots(session: Session, source: Path) -> SnapshotTransfer:
-    """Insert exported snapshots whose dedupe_key is not already present. Never updates."""
+def import_snapshots(
+    session: Session, source: Path, *, create_missing_players: bool = False
+) -> SnapshotTransfer:
+    """Insert exported snapshots whose dedupe_key is not already present. Never updates.
+
+    ``create_missing_players`` adds a player identity row (name + provider id) for
+    snapshots whose player is absent, e.g. on a database without that season's box scores.
+    It never creates game logs.
+    """
     result = SnapshotTransfer()
     players = {
         (src, xid): pid
@@ -274,6 +282,21 @@ def import_snapshots(session: Session, source: Path) -> SnapshotTransfer:
                 result.skipped_existing += 1
                 continue
             pid = players.get((row["player_external_source"], row["player_external_id"]))
+            if pid is None and create_missing_players and row["player_external_id"]:
+                player = Player(full_name=row["player_name"])
+                session.add(player)
+                session.flush()
+                session.add(
+                    ExternalId(
+                        source=row["player_external_source"],
+                        entity_type="player",
+                        entity_id=player.id,
+                        external_id=row["player_external_id"],
+                    )
+                )
+                players[(row["player_external_source"], row["player_external_id"])] = player.id
+                pid = player.id
+                result.players_created += 1
             if pid is None:
                 result.skipped_unknown_player += 1
                 continue

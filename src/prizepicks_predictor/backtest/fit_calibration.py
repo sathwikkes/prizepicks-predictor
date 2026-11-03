@@ -30,6 +30,7 @@ from prizepicks_predictor.backtest.report import read_run
 from prizepicks_predictor.prediction.calibrators import (
     CalibrationArtifact,
     HeldOutSummary,
+    compute_support,
     make_artifact_id,
     utc_now,
 )
@@ -118,6 +119,7 @@ def fit_artifact(
         )
 
     fit_seasons = sorted(set(seasons))
+    support = compute_support(p_fit)
     return CalibrationArtifact(
         artifact_id=make_artifact_id(
             method=method,
@@ -152,4 +154,31 @@ def fit_artifact(
             "fitted on synthetic evaluation lines; not validated against market lines",
             "applies to P(more | no push); push probability is left to the model",
         ],
+        support_lo=support["support_lo"],
+        support_hi=support["support_hi"],
+        support_bins=support["support_bins"],
     )
+
+
+def annotate_support(artifact_dir: Path, fit_runs: list[Path]) -> list[tuple[Path, str]]:
+    """Add training-domain metadata to existing artifacts from their fit runs.
+
+    The fitted map is untouched: the artifact id (a hash of x/y) must be identical before
+    and after, which is asserted. Returns (path, artifact_id) per updated file.
+    """
+    updated: list[tuple[Path, str]] = []
+    for path in sorted(artifact_dir.glob("*.json")):
+        art = CalibrationArtifact.load(path)
+        ps = [
+            load_pairs(run, stat=art.stat.value, model=art.model_name, family=art.family.value)[0]
+            for run in fit_runs
+        ]
+        annotated = art.with_support(np.concatenate(ps))
+        assert (
+            annotated.artifact_id == art.artifact_id
+            and annotated.x == art.x
+            and annotated.y == art.y
+        )
+        annotated.save(artifact_dir)
+        updated.append((path, annotated.artifact_id))
+    return updated

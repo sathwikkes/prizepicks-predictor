@@ -35,7 +35,7 @@ def test_app_entrypoint_renders_overview(app_db: str) -> None:
     at = AppTest.from_file(str(APP), default_timeout=90).run()
     assert not at.exception
     assert any("PrizePicks Predictor" in t.value for t in at.title)
-    assert any("Latest box score" in m.label for m in at.metric)
+    assert any("Latest completed game" in m.label for m in at.metric)
     assert any("2024-11-29" in m.value for m in at.metric)
 
 
@@ -59,7 +59,8 @@ def test_predict_page_runs_prediction(app_db: str) -> None:
     at.number_input[0].set_value(24.5).run()
     assert not at.exception
     assert any("Projected total" in m.label for m in at.metric)
-    assert any("Calibration status" in md.value for md in at.markdown)
+    # no artifacts in the test environment -> explicit uncalibrated headline, never a bare number
+    assert any("Uncalibrated estimate shown" in i.value for i in at.info)
     assert any("unvalidated" in i.value for i in at.info)
     at.date_input[0].set_value(date(2024, 10, 27)).run()  # insufficient history -> warning
     assert not at.exception

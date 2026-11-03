@@ -200,6 +200,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "import-snapshots", help="Insert exported snapshots that are not already present"
     )
     im.add_argument("--from", dest="source", required=True)
+    im.add_argument(
+        "--create-players",
+        action="store_true",
+        help="add player identity rows for snapshots whose player is not in this database",
+    )
+
+    ann = sub.add_parser(
+        "annotate-calibration-support",
+        help="Record each artifact's training probability range (fitted map unchanged)",
+    )
+    ann.add_argument("--fit-run", action="append", required=True)
+    ann.add_argument("--artifacts", default="artifacts/calibration")
 
     pred = sub.add_parser("predict", help="Predict More/Less probabilities for a prop line")
     pred.add_argument("--player-id", type=int, required=True, help="Internal player id")
@@ -260,7 +272,9 @@ def _print_prediction(result: PredictionResult) -> None:
             f"venue {'home' if sc.is_home else 'away' if sc.is_home is False else 'unknown'} "
             f"(source {sc.source})"
         )
-    print(f"  calibration: {result.calibration_status}")
+    print(f"  calibration: {result.calibration_summary} ({result.calibration_status})")
+    if result.calibration is not None and result.calibration.support_message:
+        print(f"  calibration evidence: {result.calibration.support_message}")
     if result.warnings:
         print("  warnings: " + ", ".join(w.value for w in result.warnings))
     for note in result.distribution.notes:
@@ -640,6 +654,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"written {path}")
             return 0
 
+        if args.command == "annotate-calibration-support":
+            from prizepicks_predictor.backtest.fit_calibration import annotate_support
+
+            for path, art_id in annotate_support(
+                Path(args.artifacts), [Path(r) for r in args.fit_run]
+            ):
+                print(f"annotated {path} ({art_id})")
+            return 0
+
         if args.command == "check":
             from prizepicks_predictor.prediction.service import resolve_calibration_dir
             from prizepicks_predictor.services.readiness import render_checks, run_checks
@@ -661,7 +684,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             from prizepicks_predictor.services.portability import import_snapshots, snapshot_counts
 
             try:
-                res = import_snapshots(session, Path(args.source))
+                res = import_snapshots(
+                    session, Path(args.source), create_missing_players=args.create_players
+                )
             except (FileNotFoundError, OSError, ValueError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 2

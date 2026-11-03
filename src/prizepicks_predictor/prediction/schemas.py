@@ -40,6 +40,12 @@ class WarningCode(StrEnum):
     #: calibrators were fitted on half-point lines; at integer lines the conditional map is
     #: applied to P(more | no push) without having been validated for that case
     CALIBRATION_INTEGER_LINE_UNVALIDATED = "calibration_integer_line_unvalidated"
+    #: raw probability lies outside the range the calibration map was fitted on
+    CALIBRATION_OUTSIDE_SUPPORT = "calibration_outside_support"
+    #: too few validated observations near this raw probability
+    CALIBRATION_INSUFFICIENT_EVIDENCE = "calibration_insufficient_evidence"
+    #: threshold is far from the player's recent median, where calibration was validated
+    THRESHOLD_FAR_FROM_RECENT_MEDIAN = "threshold_far_from_recent_median"
 
 
 #: Matchup/availability inputs the engine is designed for but cannot compute yet.
@@ -191,6 +197,9 @@ class CalibrationInfo(BaseModel):
     line_policy: str
     held_out_ece_calibrated: float | None = None
     held_out_ece_uncalibrated: float | None = None
+    support_status: str = "unknown"
+    support_message: str = ""
+    evidence_count: int | None = None
 
 
 class PredictionResult(BaseModel):
@@ -218,3 +227,8 @@ class PredictionResult(BaseModel):
 
     #: "uncalibrated: <reason>" or "<method> (<validation_status>; synthetic lines only)"
     calibration_status: str = "uncalibrated"
+    #: Plain-English headline: "Calibration supported", "Calibration outside validated range",
+    #: "Insufficient calibration evidence", "Uncalibrated estimate shown"
+    calibration_summary: str = "Uncalibrated estimate shown"
+    #: line minus the player's trailing-10-game median (the region calibration was validated in)
+    line_offset_from_recent_median: float | None = None
