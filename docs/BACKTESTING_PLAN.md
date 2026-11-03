@@ -1,7 +1,8 @@
 # Phase 3 plan: walk-forward evaluation on real NBA data
 
-Three complete real seasons plus a partial one are now in the database. This is the plan
-for turning them into evidence about the Phase 2 baselines. Nothing here is implemented yet.
+Three complete real seasons plus a partial one are in the database. This plan is
+implemented in `src/prizepicks_predictor/backtest/` (`ppp backtest`, `ppp calibrate`);
+results are in `docs/BACKTEST_RESULTS.md`. Deviations from the plan are noted inline.
 
 ## 1. Observation set
 
@@ -36,8 +37,10 @@ Point forecast: MAE and RMSE versus the realised stat, per stat type, per model,
 season-average model as the reference and bootstrap confidence intervals on the differences.
 
 Probabilistic: because real PrizePicks lines are unavailable, synthetic lines are generated
-from the prediction itself at the predicted median and at median ±1, ±2, ±3 (half-point lines
-only, so pushes do not complicate the comparison). For each line: Brier score, log loss, and
+**from pregame history only and independently of any model**: floor(trailing-10-game
+median) + 0.5, at offsets −2, −1, 0, +1, +2 (half-point lines only, so pushes do not
+complicate the comparison). *Deviation from the original plan:* lines are no longer
+derived from each model's own median, because that would give each model a different task. For each line: Brier score, log loss, and
 reliability curves (predicted P(more) in deciles vs observed frequency). Also the PIT
 histogram and the empirical coverage of the 80% interval, which test the whole distribution
 rather than one threshold.
