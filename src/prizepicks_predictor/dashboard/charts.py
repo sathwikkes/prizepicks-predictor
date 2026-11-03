@@ -40,7 +40,7 @@ def game_log_chart(rows: Sequence[GameLogRow], stat: str, *, rolling: int = 10) 
             x=xs,
             y=roll,
             mode="lines",
-            name=f"trailing {rolling}-game mean",
+            name=f"trailing {rolling}-game mean (within loaded games)",
             line={"color": "#222", "width": 2},
         )
     fig.update_layout(

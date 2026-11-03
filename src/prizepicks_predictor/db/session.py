@@ -45,8 +45,20 @@ _COMPAT_COLUMNS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+#: Database-level guard for immutable forecast snapshots (SQLite). The ORM hook in
+#: models.py catches application code; these triggers catch raw SQL and other clients.
+_SNAPSHOT_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_prediction_snapshots_no_update "
+    "BEFORE UPDATE ON prediction_snapshots BEGIN "
+    "SELECT RAISE(ABORT, 'prediction_snapshots rows are immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_prediction_snapshots_no_delete "
+    "BEFORE DELETE ON prediction_snapshots BEGIN "
+    "SELECT RAISE(ABORT, 'prediction_snapshots rows are immutable'); END",
+)
+
+
 def init_db(engine: Engine) -> None:
-    """Create all tables and add any columns missing from an older database. Idempotent."""
+    """Create all tables, add columns missing from an older database, install guards. Idempotent."""
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
     for table, column, ddl in _COMPAT_COLUMNS:
@@ -54,6 +66,10 @@ def init_db(engine: Engine) -> None:
         if column not in existing:
             with engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+    if engine.url.get_backend_name() == "sqlite":
+        with engine.begin() as conn:
+            for ddl in _SNAPSHOT_TRIGGERS:
+                conn.execute(text(ddl))
 
 
 def get_session_factory(engine: Engine) -> sessionmaker[Session]:

@@ -296,11 +296,13 @@ def list_snapshots(
     if player_query:
         ids = [p.id for p in find_players(session, player_query, limit=50)]
         stmt = stmt.where(PredictionSnapshot.player_id.in_(ids or [-1]))
+    if status == "pending":
+        stmt = stmt.where(PredictionOutcome.id.is_(None))
+    elif status is not None:
+        stmt = stmt.where(PredictionOutcome.status == status)
     out: list[SnapshotRow] = []
-    for snap, player, outcome in session.execute(stmt.limit(limit * 3)):
+    for snap, player, outcome in session.execute(stmt.limit(limit)):
         st_ = "pending" if outcome is None else outcome.status
-        if status is not None and st_ != status:
-            continue
         out.append(
             SnapshotRow(
                 snapshot_id=snap.id,
@@ -336,8 +338,6 @@ def list_snapshots(
                 warnings=tuple(json.loads(snap.warnings_json)),
             )
         )
-        if len(out) >= limit:
-            break
     return out
 
 
